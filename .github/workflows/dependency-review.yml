@@ -11,9 +11,6 @@ on:
         description: Head ref or commit SHA to compare to during manual validation
         required: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: read
 
@@ -21,8 +18,24 @@ jobs:
   dependency-review:
     runs-on: ubuntu-latest
     steps:
-      - name: Dependency review
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
-        with:
-          base-ref: ${{ github.event_name == 'workflow_dispatch' && inputs.base_ref || '' }}
-          head-ref: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || '' }}
+      - name: Report dependency review availability
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          repo_json="$(gh api "repos/$REPO")"
+          visibility="$(printf '%s' "$repo_json" | jq -r '.visibility')"
+
+          {
+            echo '## Dependency Review Status'
+            echo
+            if [ "$visibility" = "private" ]; then
+              echo 'Dependency review is intentionally disabled in this workflow for the current private repository state.'
+              echo
+              echo 'GitHub requires additional repository security features for dependency review on this repo, and the previous action path also emitted a deprecated Node 20 runtime warning.'
+              echo
+              echo 'Tracked follow-up: issue #20'
+            else
+              echo 'Repository is not private anymore. Revisit issue #20 to replace this placeholder with a full dependency-review implementation that fits the new repository posture.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
