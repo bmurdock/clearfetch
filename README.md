@@ -91,6 +91,37 @@ try {
 - Relative request inputs require `baseURL`.
 - `beforeRequest` may override the URL only with a final absolute URL.
 - Retry support is opt-in and conservative by default.
+- The package performs no telemetry or hidden network activity beyond the caller's request.
+
+## Supported runtimes
+
+clearfetch currently supports:
+
+- Node.js `18.x` and newer
+- modern browsers with native `fetch`, `Request`, `Response`, `Headers`, `URL`, and `AbortController`
+
+The package is ESM-first and does not target legacy runtimes or polyfill-driven environments.
+
+## Security
+
+- The package includes no built-in telemetry.
+- The package performs no hidden network activity beyond the caller's request.
+- Vulnerability reports should follow the policy in [SECURITY.md](./SECURITY.md).
+
+## Release and CI
+
+- CI runs lint, test, and build checks on supported Node.js versions.
+- Dependency review runs on pull requests.
+- Normal releases are expected to publish from GitHub Actions, not from local machines.
+- Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
+
+## Package surface
+
+The public package surface is intentionally narrow:
+
+- the root export provides the supported runtime API and public types
+- internal implementation modules are not part of the supported import contract
+- the package includes no lifecycle scripts and is intended to publish only built `dist/` artifacts
 
 ## Development
 

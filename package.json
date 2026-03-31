@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript runtimes.",
   "type": "module",
+  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },
@@ -27,6 +28,14 @@
     "http",
     "typescript"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bmurdock/clearfetch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bmurdock/clearfetch/issues"
+  },
+  "homepage": "https://github.com/bmurdock/clearfetch#readme",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.5.2",
