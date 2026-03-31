@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   AbortRequestError,
+  ConfigError,
   HttpError,
   TimeoutError,
 } from '../src/errors.js'
@@ -210,6 +211,66 @@ test('retries use configured methods and statuses with bounded backoff', async (
 
     assert.deepEqual(result, { ok: true })
     assert.equal(attempts, 3)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('beforeRequest may replace the URL with a final absolute URL', async () => {
+  const originalFetch = globalThis.fetch
+  const urls: string[] = []
+
+  globalThis.fetch = async (input) => {
+    const request = input as Request
+    urls.push(request.url)
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const client = createClient({
+      baseURL: 'https://api.example.com',
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            context.url = new URL('https://uploads.example.com/override')
+          },
+        ],
+      },
+    })
+
+    await client.get('/users', {
+      query: {
+        page: 1,
+      },
+    })
+
+    assert.deepEqual(urls, ['https://uploads.example.com/override'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('beforeRequest rejects relative URL overrides', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const client = createClient({
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            ;(context as { url: unknown }).url = '/relative'
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) =>
+        error instanceof ConfigError &&
+        error.message === 'beforeRequest URL overrides must be absolute URLs',
+    )
   } finally {
     globalThis.fetch = originalFetch
   }
