@@ -189,6 +189,7 @@ export interface RequestOptions {
   signal?: AbortSignal
   responseType?: ResponseType
   retry?: false | RetryOptions
+  hooks?: Hooks
   parseJson?: (text: string) => unknown
 }
 
@@ -235,7 +236,7 @@ Always throw `HttpError` for non-2xx responses.
 Query handling should be explicit and stable:
 
 - skip `undefined` values
-- serialize `null` in one documented way and keep that behavior stable
+- serialize `null` as the literal string `null`
 - repeat keys for arrays by default, for example `tags=a&tags=b`
 
 Repeated keys are the least surprising default.

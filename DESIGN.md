@@ -448,7 +448,7 @@ Default rules:
 - scalar values produce a single key-value pair
 - array values produce repeated keys
 - values are serialized via string conversion in a predictable way
-- null handling must be explicitly documented and remain stable
+- `null` is serialized as the literal string `null`
 
 Recommended default for arrays:
 
