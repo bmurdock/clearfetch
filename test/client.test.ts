@@ -78,7 +78,7 @@ test('request returns text responses when responseType is text', async () => {
   globalThis.fetch = async () => new Response('plain text response')
 
   try {
-    const result = await request<string>('https://api.example.com/text', {
+    const result = await request('https://api.example.com/text', {
       responseType: 'text',
     })
 
@@ -100,7 +100,7 @@ test('request returns arrayBuffer responses when responseType is arrayBuffer', a
     })
 
   try {
-    const result = await request<ArrayBuffer>('https://api.example.com/binary', {
+    const result = await request('https://api.example.com/binary', {
       responseType: 'arrayBuffer',
     })
 
@@ -121,7 +121,7 @@ test('request returns blob responses when responseType is blob', async () => {
     })
 
   try {
-    const result = await request<Blob>('https://api.example.com/blob', {
+    const result = await request('https://api.example.com/blob', {
       responseType: 'blob',
     })
 

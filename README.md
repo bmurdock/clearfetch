@@ -66,6 +66,10 @@ const api = createClient({
 })
 ```
 
+`beforeRequest` hook failures propagate as-is. `afterResponse` hooks receive a cloned
+`Response`, so reading the body there does not consume the response used for normal
+parsing or `HttpError` creation.
+
 ### Error handling
 
 ```ts
@@ -88,6 +92,8 @@ try {
 
 - Non-2xx responses throw `HttpError`.
 - JSON mode returns `undefined` for empty response bodies.
+- Hook failures are not wrapped as `NetworkError`.
+- `afterResponse` receives a cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
 - `beforeRequest` may override the URL only with a final absolute URL.
 - Retry support is opt-in and conservative by default.

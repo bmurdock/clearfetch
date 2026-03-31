@@ -114,43 +114,223 @@ export interface NormalizedRequestOptions {
 export interface HttpClient {
   request<T = unknown>(
     input: string | URL,
-    options?: RequestOptions,
-  ): Promise<T | Response | undefined>
+    options?: JsonRequestOptions,
+  ): Promise<T | undefined>
+
+  request(
+    input: string | URL,
+    options: TextRequestOptions,
+  ): Promise<string>
+
+  request(
+    input: string | URL,
+    options: BlobRequestOptions,
+  ): Promise<Blob>
+
+  request(
+    input: string | URL,
+    options: ArrayBufferRequestOptions,
+  ): Promise<ArrayBuffer>
+
+  request(
+    input: string | URL,
+    options: RawRequestOptions,
+  ): Promise<Response>
 
   get<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  get(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  get(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  get(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  get(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   post<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  post(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  post(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  post(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  post(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   put<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  put(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  put(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  put(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  put(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   patch<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  patch(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  patch(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  patch(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  patch(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   delete<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  delete(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  delete(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  delete(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  delete(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   head<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  head(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  head(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  head(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  head(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   options<T = unknown>(
     input: string | URL,
-    options?: Omit<RequestOptions, 'method'>,
-  ): Promise<T | Response | undefined>
+    options?: Omit<JsonRequestOptions, 'method'>,
+  ): Promise<T | undefined>
+
+  options(
+    input: string | URL,
+    options: Omit<TextRequestOptions, 'method'>,
+  ): Promise<string>
+
+  options(
+    input: string | URL,
+    options: Omit<BlobRequestOptions, 'method'>,
+  ): Promise<Blob>
+
+  options(
+    input: string | URL,
+    options: Omit<ArrayBufferRequestOptions, 'method'>,
+  ): Promise<ArrayBuffer>
+
+  options(
+    input: string | URL,
+    options: Omit<RawRequestOptions, 'method'>,
+  ): Promise<Response>
 
   extend(defaults: ClientDefaults): HttpClient
+}
+
+type JsonRequestOptions = RequestOptions & {
+  responseType?: 'json'
+}
+
+type TextRequestOptions = RequestOptions & {
+  responseType: 'text'
+}
+
+type BlobRequestOptions = RequestOptions & {
+  responseType: 'blob'
+}
+
+type ArrayBufferRequestOptions = RequestOptions & {
+  responseType: 'arrayBuffer'
+}
+
+type RawRequestOptions = RequestOptions & {
+  responseType: 'raw'
 }

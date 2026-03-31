@@ -29,7 +29,7 @@ export async function executeRequest<T = unknown>(
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
   fetchImpl: FetchLike = fetch,
-): Promise<T | Response | undefined> {
+): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
   const initialContext = createBeforeRequestContext(input, defaults, options)
   const maxAttempts =
     initialContext.options.retry === false ? 1 : initialContext.options.retry.attempts
@@ -52,55 +52,37 @@ export async function executeRequest<T = unknown>(
       try {
         const request = buildRequestFromContext(context, timeout.signal)
         currentRequest = request
-        const response = await fetchImpl(request)
+        const response = await fetchWithHandling({
+          attempt,
+          context,
+          fetchImpl,
+          input,
+          request,
+          timeout,
+        })
         currentResponse = response
 
         await runAfterResponseHooks({
           input,
           request,
-          response,
+          response: response.clone(),
           options: context.options,
         })
 
-        return (await parseResponse<T>({
+        return await parseWithHandling<T>({
+          attempt,
+          context,
+          input,
           request,
           response,
-          responseType: context.options.responseType,
-          parseJson: context.options.parseJson,
-        })) as T | Response | undefined
+          timeout,
+        })
       } catch (error) {
-        const normalizeParams: { error: unknown; timeout?: number } = { error }
-        if (timeout.didTimeout() && context.options.timeout !== undefined) {
-          normalizeParams.timeout = context.options.timeout
-        }
-
-        const normalized = normalizeExecutionError(normalizeParams)
-
-        if (shouldRetry(normalized, context.options.method, context.options.retry, attempt)) {
-          await sleep(getRetryDelay(context.options.retry, attempt))
-          lastError = normalized
+        if (error instanceof RetrySignal) {
+          lastError = error.error
           continue
         }
-
-        const errorContext: ErrorContext = {
-          input,
-          error: normalized,
-          options: context.options,
-        }
-
-        if (currentRequest !== undefined) {
-          errorContext.request = currentRequest
-        }
-
-        const errorResponse =
-          normalized instanceof HttpError ? normalized.response : currentResponse
-        if (errorResponse !== undefined) {
-          errorContext.response = errorResponse
-        }
-
-        await runOnErrorHooks(errorContext)
-
-        throw normalized
+        throw error
       } finally {
         timeout.cleanup()
       }
@@ -306,4 +288,105 @@ function sleep(duration: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, duration)
   })
+}
+
+class RetrySignal {
+  readonly error: HttpClientError
+
+  constructor(error: HttpClientError) {
+    this.error = error
+  }
+}
+
+async function fetchWithHandling(params: {
+  attempt: number
+  context: BeforeRequestContext
+  fetchImpl: FetchLike
+  input: string | URL
+  request: Request
+  timeout: ReturnType<typeof createTimeoutController>
+}): Promise<Response> {
+  const {
+    attempt,
+    context,
+    fetchImpl,
+    input,
+    request,
+    timeout,
+  } = params
+
+  try {
+    return await fetchImpl(request)
+  } catch (error) {
+    const normalized = normalizeExecutionError(
+      context.options.timeout !== undefined && timeout.didTimeout()
+        ? { error, timeout: context.options.timeout }
+        : { error },
+    )
+
+    if (shouldRetry(normalized, context.options.method, context.options.retry, attempt)) {
+      await sleep(getRetryDelay(context.options.retry, attempt))
+      throw new RetrySignal(normalized)
+    }
+
+    const errorContext: ErrorContext = {
+      input,
+      error: normalized,
+      options: context.options,
+      request,
+    }
+
+    const errorResponse =
+      normalized instanceof HttpError ? normalized.response : undefined
+    if (errorResponse !== undefined) {
+      errorContext.response = errorResponse
+    }
+
+    await runOnErrorHooks(errorContext)
+
+    throw normalized
+  }
+}
+
+async function parseWithHandling<T>(params: {
+  attempt: number
+  context: BeforeRequestContext
+  input: string | URL
+  request: Request
+  response: Response
+  timeout: ReturnType<typeof createTimeoutController>
+}): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
+  const { attempt, context, input, request, response, timeout } = params
+
+  try {
+    return (await parseResponse<T>({
+      request,
+      response,
+      responseType: context.options.responseType,
+      parseJson: context.options.parseJson,
+    })) as T | Response | string | Blob | ArrayBuffer | undefined
+  } catch (error) {
+    const normalized = normalizeExecutionError(
+      context.options.timeout !== undefined && timeout.didTimeout()
+        ? { error, timeout: context.options.timeout }
+        : { error },
+    )
+
+    if (shouldRetry(normalized, context.options.method, context.options.retry, attempt)) {
+      await sleep(getRetryDelay(context.options.retry, attempt))
+      throw new RetrySignal(normalized)
+    }
+
+    const errorContext: ErrorContext = {
+      input,
+      error: normalized,
+      options: context.options,
+      request,
+      response: normalized instanceof HttpError ? normalized.response : response,
+    }
+
+    await runOnErrorHooks(errorContext)
+
+    throw normalized
+  }
 }

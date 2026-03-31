@@ -402,6 +402,125 @@ test('hook failures propagate instead of being swallowed', async () => {
   }
 })
 
+test('afterResponse hook failures propagate without NetworkError wrapping', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const client = createClient({
+      hooks: {
+        afterResponse: [
+          async () => {
+            throw new Error('afterResponse failure')
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) =>
+        error instanceof Error &&
+        !(error instanceof NetworkError) &&
+        error.message === 'afterResponse failure',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('onError hook failures propagate without replacing them with NetworkError', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () =>
+    new Response('missing', {
+      status: 404,
+      statusText: 'Not Found',
+    })
+
+  try {
+    const client = createClient({
+      hooks: {
+        onError: [
+          async () => {
+            throw new Error('onError failure')
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) =>
+        error instanceof Error &&
+        !(error instanceof NetworkError) &&
+        error.message === 'onError failure',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('afterResponse may read the response body without breaking json parsing', async () => {
+  const originalFetch = globalThis.fetch
+  const seenBodies: string[] = []
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const client = createClient({
+      hooks: {
+        afterResponse: [
+          async (context) => {
+            seenBodies.push(await context.response.text())
+          },
+        ],
+      },
+    })
+
+    const result = await client.get<{ ok: boolean }>('https://api.example.com/users')
+
+    assert.deepEqual(seenBodies, ['{"ok":true}'])
+    assert.deepEqual(result, { ok: true })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('afterResponse body reads do not prevent HttpError bodyText capture', async () => {
+  const originalFetch = globalThis.fetch
+  const seenBodies: string[] = []
+
+  globalThis.fetch = async () =>
+    new Response('missing', {
+      status: 404,
+      statusText: 'Not Found',
+    })
+
+  try {
+    const client = createClient({
+      hooks: {
+        afterResponse: [
+          async (context) => {
+            seenBodies.push(await context.response.text())
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) =>
+        error instanceof HttpError &&
+        error.status === 404 &&
+        error.bodyText === 'missing',
+    )
+
+    assert.deepEqual(seenBodies, ['missing'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('request-level beforeRequest hook can override client header values', async () => {
   const originalFetch = globalThis.fetch
   const seenHeaders: string[] = []
