@@ -111,6 +111,7 @@ The package is ESM-first and does not target legacy runtimes or polyfill-driven 
 ## Release and CI
 
 - CI runs lint, test, and build checks on supported Node.js versions.
+- CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `20`.
 - Dependency review runs on pull requests.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).

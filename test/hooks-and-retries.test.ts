@@ -5,6 +5,7 @@ import {
   AbortRequestError,
   ConfigError,
   HttpError,
+  NetworkError,
   TimeoutError,
 } from '../src/errors.js'
 import { createClient } from '../src/index.js'
@@ -271,6 +272,168 @@ test('beforeRequest rejects relative URL overrides', async () => {
         error instanceof ConfigError &&
         error.message === 'beforeRequest URL overrides must be absolute URLs',
     )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry does not run for unsupported methods even when status is eligible', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    return new Response('retry', {
+      status: 503,
+      statusText: 'Service Unavailable',
+    })
+  }
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          method: 'POST',
+          retry: {
+            attempts: 3,
+            backoffMs: 1,
+            maxBackoffMs: 2,
+            multiplier: 2,
+            retryOnStatuses: [503],
+            retryOnMethods: ['GET'],
+          },
+        }),
+      (error) => error instanceof HttpError && error.status === 503,
+    )
+
+    assert.equal(attempts, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry does not run for unsupported statuses', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    return new Response('no retry', {
+      status: 500,
+      statusText: 'Internal Server Error',
+    })
+  }
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          retry: {
+            attempts: 3,
+            backoffMs: 1,
+            maxBackoffMs: 2,
+            multiplier: 2,
+            retryOnStatuses: [503],
+            retryOnMethods: ['GET'],
+          },
+        }),
+      (error) => error instanceof HttpError && error.status === 500,
+    )
+
+    assert.equal(attempts, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry runs for network failures when method is eligible', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    if (attempts < 2) {
+      throw new TypeError('fetch failed')
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 2,
+        multiplier: 2,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(attempts, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('hook failures propagate instead of being swallowed', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const client = createClient({
+      hooks: {
+        beforeRequest: [
+          async () => {
+            throw new Error('hook failure')
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) => error instanceof Error && error.message === 'hook failure',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('request-level beforeRequest hook can override client header values', async () => {
+  const originalFetch = globalThis.fetch
+  const seenHeaders: string[] = []
+
+  globalThis.fetch = async (input) => {
+    const req = input as Request
+    seenHeaders.push(req.headers.get('x-env') ?? '')
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const client = createClient({
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            context.headers.set('x-env', 'client')
+          },
+        ],
+      },
+    })
+
+    await client.get('https://api.example.com/users', {
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            context.headers.set('x-env', 'request')
+          },
+        ],
+      },
+    })
+
+    assert.deepEqual(seenHeaders, ['request'])
   } finally {
     globalThis.fetch = originalFetch
   }
