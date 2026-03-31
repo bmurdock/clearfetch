@@ -234,3 +234,53 @@ test('extend preserves parent defaults unless child overrides them', async () =>
     globalThis.fetch = originalFetch
   }
 })
+
+test('createClient snapshots defaults against later external mutation', async () => {
+  const originalFetch = globalThis.fetch
+  const requests: Request[] = []
+  const defaultHeaders = new Headers({
+    Accept: 'application/json',
+  })
+  const beforeRequestHooks = [
+    (context: { headers: Headers }) => {
+      context.headers.set('x-from-hook', 'original')
+    },
+  ]
+  const retry = {
+    attempts: 2,
+    retryOnStatuses: [503],
+    retryOnMethods: ['GET'] as ('GET')[],
+  }
+  const defaults = {
+    baseURL: 'https://api.example.com',
+    headers: defaultHeaders,
+    hooks: {
+      beforeRequest: beforeRequestHooks,
+    },
+    retry,
+  }
+
+  globalThis.fetch = async (input) => {
+    requests.push(input as Request)
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const client = createClient(defaults)
+
+    defaults.baseURL = 'https://mutated.example.com'
+    defaultHeaders.set('Accept', 'text/plain')
+    beforeRequestHooks[0] = (context: { headers: Headers }) => {
+      context.headers.set('x-from-hook', 'mutated')
+    }
+    retry.retryOnStatuses[0] = 500
+
+    await client.get('/users')
+
+    assert.equal(requests[0]?.url, 'https://api.example.com/users')
+    assert.equal(requests[0]?.headers.get('accept'), 'application/json')
+    assert.equal(requests[0]?.headers.get('x-from-hook'), 'original')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

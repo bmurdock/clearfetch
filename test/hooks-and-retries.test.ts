@@ -378,6 +378,47 @@ test('retry runs for network failures when method is eligible', async () => {
   }
 })
 
+test('abort during retry backoff stops promptly with AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    throw new TypeError('fetch failed')
+  }
+
+  try {
+    const controller = new AbortController()
+    const startedAt = Date.now()
+
+    const promise = request('https://api.example.com/users', {
+      signal: controller.signal,
+      retry: {
+        attempts: 3,
+        backoffMs: 500,
+        maxBackoffMs: 500,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    setTimeout(() => {
+      controller.abort()
+    }, 25)
+
+    await assert.rejects(
+      () => promise,
+      (error) => error instanceof AbortRequestError,
+    )
+
+    assert.equal(attempts, 1)
+    assert.ok(Date.now() - startedAt < 250)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('hook failures propagate instead of being swallowed', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))

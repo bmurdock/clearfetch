@@ -90,3 +90,14 @@ test('normalizeExecutionError maps unknown failures to NetworkError', () => {
 
   assert.ok(error instanceof NetworkError)
 })
+
+test('normalizeExecutionError recognizes abort-shaped errors across realms', () => {
+  const error = normalizeExecutionError({
+    error: {
+      name: 'AbortError',
+      message: 'Request aborted',
+    },
+  })
+
+  assert.ok(error instanceof AbortRequestError)
+})

@@ -10,6 +10,7 @@ import type {
   BeforeRequestContext,
   ClientDefaults,
   ErrorContext,
+  Hooks,
   HttpClient,
   RequestMethod,
   RequestOptions,
@@ -98,18 +99,20 @@ export async function executeRequest<T = unknown>(
 }
 
 export function createClient(defaults: ClientDefaults = {}): HttpClient {
+  const frozenDefaults = snapshotClientDefaults(defaults)
+
   return {
     request: <T = unknown>(input: string | URL, options?: RequestOptions) =>
-      executeRequest<T>(input, defaults, options),
-    get: createMethodCaller(defaults, 'GET'),
-    post: createMethodCaller(defaults, 'POST'),
-    put: createMethodCaller(defaults, 'PUT'),
-    patch: createMethodCaller(defaults, 'PATCH'),
-    delete: createMethodCaller(defaults, 'DELETE'),
-    head: createMethodCaller(defaults, 'HEAD'),
-    options: createMethodCaller(defaults, 'OPTIONS'),
+      executeRequest<T>(input, frozenDefaults, options),
+    get: createMethodCaller(frozenDefaults, 'GET'),
+    post: createMethodCaller(frozenDefaults, 'POST'),
+    put: createMethodCaller(frozenDefaults, 'PUT'),
+    patch: createMethodCaller(frozenDefaults, 'PATCH'),
+    delete: createMethodCaller(frozenDefaults, 'DELETE'),
+    head: createMethodCaller(frozenDefaults, 'HEAD'),
+    options: createMethodCaller(frozenDefaults, 'OPTIONS'),
     extend: (childDefaults: ClientDefaults) =>
-      createClient(mergeClientDefaults(defaults, childDefaults)),
+      createClient(mergeClientDefaults(frozenDefaults, childDefaults)),
   }
 }
 
@@ -183,6 +186,71 @@ function mergeClientDefaults(
   }
 
   return merged
+}
+
+function snapshotClientDefaults(defaults: ClientDefaults): ClientDefaults {
+  const snapshot: ClientDefaults = {}
+
+  if (defaults.baseURL !== undefined) {
+    snapshot.baseURL =
+      defaults.baseURL instanceof URL ? new URL(defaults.baseURL) : defaults.baseURL
+  }
+
+  if (defaults.headers !== undefined) {
+    snapshot.headers = new Headers(defaults.headers)
+  }
+
+  if (defaults.timeout !== undefined) {
+    snapshot.timeout = defaults.timeout
+  }
+
+  if (defaults.responseType !== undefined) {
+    snapshot.responseType = defaults.responseType
+  }
+
+  if (defaults.retry !== undefined) {
+    if (defaults.retry === false) {
+      snapshot.retry = false
+    } else {
+      const retry: RetryOptions = {
+        ...defaults.retry,
+      }
+
+      if (defaults.retry.retryOnStatuses !== undefined) {
+        retry.retryOnStatuses = defaults.retry.retryOnStatuses.slice()
+      }
+
+      if (defaults.retry.retryOnMethods !== undefined) {
+        retry.retryOnMethods = defaults.retry.retryOnMethods.slice()
+      }
+
+      snapshot.retry = retry
+    }
+  }
+
+  if (defaults.hooks !== undefined) {
+    const hooks: Hooks = {}
+
+    if (defaults.hooks.beforeRequest !== undefined) {
+      hooks.beforeRequest = defaults.hooks.beforeRequest.slice()
+    }
+
+    if (defaults.hooks.afterResponse !== undefined) {
+      hooks.afterResponse = defaults.hooks.afterResponse.slice()
+    }
+
+    if (defaults.hooks.onError !== undefined) {
+      hooks.onError = defaults.hooks.onError.slice()
+    }
+
+    snapshot.hooks = hooks
+  }
+
+  if (defaults.parseJson !== undefined) {
+    snapshot.parseJson = defaults.parseJson
+  }
+
+  return snapshot
 }
 
 async function runBeforeRequestHooks(context: BeforeRequestContext): Promise<void> {
@@ -284,9 +352,27 @@ function createTimeoutController(signal?: AbortSignal, timeout?: number): {
   }
 }
 
-function sleep(duration: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, duration)
+function sleep(duration: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abortReason = signal?.reason ?? new DOMException('Aborted', 'AbortError')
+
+    if (signal?.aborted === true) {
+      reject(abortReason)
+      return
+    }
+
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, duration)
+
+    const onAbort = () => {
+      clearTimeout(timeoutId)
+      signal?.removeEventListener('abort', onAbort)
+      reject(abortReason)
+    }
+
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -325,7 +411,15 @@ async function fetchWithHandling(params: {
     )
 
     if (shouldRetry(normalized, context.options.method, context.options.retry, attempt)) {
-      await sleep(getRetryDelay(context.options.retry, attempt))
+      try {
+        await sleep(getRetryDelay(context.options.retry, attempt), request.signal)
+      } catch (delayError) {
+        throw normalizeExecutionError(
+          context.options.timeout !== undefined && timeout.didTimeout()
+            ? { error: delayError, timeout: context.options.timeout }
+            : { error: delayError },
+        )
+      }
       throw new RetrySignal(normalized)
     }
 
@@ -373,7 +467,15 @@ async function parseWithHandling<T>(params: {
     )
 
     if (shouldRetry(normalized, context.options.method, context.options.retry, attempt)) {
-      await sleep(getRetryDelay(context.options.retry, attempt))
+      try {
+        await sleep(getRetryDelay(context.options.retry, attempt), request.signal)
+      } catch (delayError) {
+        throw normalizeExecutionError(
+          context.options.timeout !== undefined && timeout.didTimeout()
+            ? { error: delayError, timeout: context.options.timeout }
+            : { error: delayError },
+        )
+      }
       throw new RetrySignal(normalized)
     }
 

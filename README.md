@@ -107,6 +107,7 @@ try {
 - Relative request inputs require `baseURL`.
 - `beforeRequest` may override the URL only with a final absolute URL.
 - Retry support is opt-in and conservative by default.
+- Retry support does not allow streaming request bodies.
 - The package performs no telemetry or hidden network activity beyond the caller's request.
 
 ## Supported runtimes

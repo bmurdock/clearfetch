@@ -786,10 +786,13 @@ When enabled, retries should default to safe cases such as:
 - optionally `OPTIONS`
 - transient network failure
 - selected HTTP statuses such as `429`, `502`, `503`, `504`
+- replayable request bodies only
 
 ### Unsafe scenarios
 
 The package should not automatically retry unsafe methods such as `POST`, `PUT`, `PATCH`, or `DELETE` unless the caller explicitly configures that behavior.
+
+Version 1 must also reject retry-enabled execution for streaming request bodies. Retries must not assume that all bodies can be replayed safely.
 
 ### Backoff behavior
 

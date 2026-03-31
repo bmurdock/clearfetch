@@ -27,5 +27,14 @@ export function normalizeExecutionError(params: {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true
+  }
+
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  )
 }

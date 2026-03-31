@@ -76,6 +76,132 @@ test('normalizeRequestOptions rejects body plus json', () => {
   )
 })
 
+test('normalizeRequestOptions rejects unsupported responseType values', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        responseType: 'xml' as never,
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === 'Unsupported responseType: xml',
+  )
+})
+
+test('normalizeRequestOptions rejects non-function parseJson values', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        parseJson: 'not-a-function' as never,
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`parseJson` must be a function',
+  )
+})
+
+test('normalizeRequestOptions rejects invalid retry values', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        retry: {
+          attempts: 0,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`retry.attempts` must be a positive integer',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        retry: {
+          retryOnMethods: ['post'] as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`retry.retryOnMethods` must contain supported uppercase methods',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        retry: {
+          retryOnStatuses: [99],
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`retry.retryOnStatuses` must contain valid HTTP status codes',
+  )
+})
+
+test('normalizeRequestOptions accepts valid retry values', () => {
+  const options = normalizeRequestOptions({}, {
+    retry: {
+      attempts: 2,
+      backoffMs: 10,
+      maxBackoffMs: 20,
+      multiplier: 2,
+      retryOnStatuses: [503],
+      retryOnMethods: ['GET'],
+    },
+  })
+
+  assert.deepEqual(options.retry, {
+    attempts: 2,
+    backoffMs: 10,
+    maxBackoffMs: 20,
+    multiplier: 2,
+    retryOnStatuses: [503],
+    retryOnMethods: ['GET'],
+  })
+})
+
+test('normalizeRequestOptions rejects unsupported query values', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        query: {
+          nested: { nope: true } as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message.includes('Unsupported query value for `nested`'),
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        query: {
+          fn: (() => 'x') as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message.includes('Unsupported query value for `fn`'),
+  )
+})
+
+test('createBeforeRequestContext rejects streaming bodies when retry is enabled', () => {
+  assert.throws(
+    () =>
+      createBeforeRequestContext('https://api.example.com/upload', {}, {
+        method: 'POST',
+        body: new ReadableStream(),
+        retry: {
+          attempts: 2,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === 'Retry is not supported for streaming request bodies',
+  )
+})
+
 test('buildRequestFromContext serializes json and sets content-type when absent', () => {
   const context = createBeforeRequestContext(
     'https://api.example.com/users',

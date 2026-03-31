@@ -21,6 +21,14 @@ const REQUEST_METHODS = new Set<RequestMethod>([
   'OPTIONS',
 ])
 
+const RESPONSE_TYPES = new Set([
+  'json',
+  'text',
+  'blob',
+  'arrayBuffer',
+  'raw',
+])
+
 const DEFAULT_RETRY: Required<RetryOptions> = {
   attempts: 3,
   backoffMs: 250,
@@ -46,6 +54,7 @@ export function createBeforeRequestContext(
   const url = resolveRequestURL(input, defaults.baseURL, options.query)
   const normalized = normalizeRequestOptions(defaults, options)
   const body = resolveRequestBody(normalized)
+  validateRetryableBody(body, normalized.retry)
 
   const context: BeforeRequestContext = {
     input,
@@ -96,10 +105,14 @@ export function normalizeRequestOptions(
 ): NormalizedRequestOptions {
   const method = normalizeMethod(options.method ?? 'GET')
   const timeout = normalizeTimeout(options.timeout ?? defaults.timeout)
-  const responseType = options.responseType ?? defaults.responseType ?? 'json'
+  const responseType = normalizeResponseType(
+    options.responseType ?? defaults.responseType ?? 'json',
+  )
   const retry = normalizeRetry(defaults.retry, options.retry)
   const hooks = mergeHooks(defaults.hooks, options.hooks)
-  const parseJson = options.parseJson ?? defaults.parseJson ?? DEFAULT_PARSE_JSON
+  const parseJson = normalizeParseJson(
+    options.parseJson ?? defaults.parseJson ?? DEFAULT_PARSE_JSON,
+  )
   const headers = mergeHeaders(defaults.headers, options.headers)
 
   if (options.body !== undefined && options.json !== undefined) {
@@ -124,6 +137,7 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
+    validateQueryParams(options.query)
     normalized.query = options.query
   }
 
@@ -247,6 +261,24 @@ function normalizeTimeout(timeout?: number): number | undefined {
   return timeout
 }
 
+function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
+  if (typeof responseType !== 'string' || !RESPONSE_TYPES.has(responseType)) {
+    throw new ConfigError(`Unsupported responseType: ${String(responseType)}`)
+  }
+
+  return responseType as NormalizedRequestOptions['responseType']
+}
+
+function normalizeParseJson(
+  parseJson: unknown,
+): NormalizedRequestOptions['parseJson'] {
+  if (typeof parseJson !== 'function') {
+    throw new ConfigError('`parseJson` must be a function')
+  }
+
+  return parseJson as NormalizedRequestOptions['parseJson']
+}
+
 function normalizeRetry(
   defaultRetry?: false | RetryOptions,
   requestRetry?: false | RetryOptions,
@@ -260,13 +292,62 @@ function normalizeRetry(
     return false
   }
 
+  const attempts = source.attempts ?? DEFAULT_RETRY.attempts
+  const backoffMs = source.backoffMs ?? DEFAULT_RETRY.backoffMs
+  const maxBackoffMs = source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs
+  const multiplier = source.multiplier ?? DEFAULT_RETRY.multiplier
+  const retryOnStatuses = source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses
+  const retryOnMethods = source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods
+
+  if (!Number.isInteger(attempts) || attempts <= 0) {
+    throw new ConfigError('`retry.attempts` must be a positive integer')
+  }
+
+  if (!Number.isFinite(backoffMs) || backoffMs < 0) {
+    throw new ConfigError('`retry.backoffMs` must be a non-negative finite number')
+  }
+
+  if (!Number.isFinite(maxBackoffMs) || maxBackoffMs < 0) {
+    throw new ConfigError(
+      '`retry.maxBackoffMs` must be a non-negative finite number',
+    )
+  }
+
+  if (!Number.isFinite(multiplier) || multiplier < 1) {
+    throw new ConfigError('`retry.multiplier` must be a finite number >= 1')
+  }
+
+  if (!Array.isArray(retryOnStatuses)) {
+    throw new ConfigError('`retry.retryOnStatuses` must be an array of status codes')
+  }
+
+  for (const status of retryOnStatuses) {
+    if (!Number.isInteger(status) || status < 100 || status > 599) {
+      throw new ConfigError(
+        '`retry.retryOnStatuses` must contain valid HTTP status codes',
+      )
+    }
+  }
+
+  if (!Array.isArray(retryOnMethods)) {
+    throw new ConfigError('`retry.retryOnMethods` must be an array of methods')
+  }
+
+  for (const method of retryOnMethods) {
+    if (typeof method !== 'string' || !REQUEST_METHODS.has(method as RequestMethod)) {
+      throw new ConfigError(
+        '`retry.retryOnMethods` must contain supported uppercase methods',
+      )
+    }
+  }
+
   return {
-    attempts: source.attempts ?? DEFAULT_RETRY.attempts,
-    backoffMs: source.backoffMs ?? DEFAULT_RETRY.backoffMs,
-    maxBackoffMs: source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs,
-    multiplier: source.multiplier ?? DEFAULT_RETRY.multiplier,
-    retryOnStatuses: source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses,
-    retryOnMethods: source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods,
+    attempts,
+    backoffMs,
+    maxBackoffMs,
+    multiplier,
+    retryOnStatuses,
+    retryOnMethods,
   }
 }
 
@@ -316,4 +397,58 @@ function serializeScalarQueryValue(
   }
 
   return String(value)
+}
+
+function validateQueryParams(query: QueryParams): void {
+  for (const [key, value] of Object.entries(query)) {
+    validateQueryValue(key, value)
+  }
+}
+
+function validateQueryValue(key: string, value: QueryParams[string]): void {
+  if (value === undefined) {
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      validateQueryScalarValue(key, item)
+    }
+    return
+  }
+
+  validateQueryScalarValue(key, value)
+}
+
+function validateQueryScalarValue(key: string, value: unknown): void {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return
+  }
+
+  throw new ConfigError(
+    `Unsupported query value for \`${key}\`; only string, number, boolean, null, arrays, and undefined are allowed`,
+  )
+}
+
+function validateRetryableBody(
+  body: BodyInit | null | undefined,
+  retry: NormalizedRequestOptions['retry'],
+): void {
+  if (retry === false || body === undefined || body === null) {
+    return
+  }
+
+  if (
+    typeof ReadableStream !== 'undefined' &&
+    body instanceof ReadableStream
+  ) {
+    throw new ConfigError(
+      'Retry is not supported for streaming request bodies',
+    )
+  }
 }
