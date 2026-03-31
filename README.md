@@ -100,7 +100,7 @@ clearfetch currently supports:
 - Node.js `18.x` and newer
 - modern browsers with native `fetch`, `Request`, `Response`, `Headers`, `URL`, and `AbortController`
 
-The package is ESM-first and does not target legacy runtimes or polyfill-driven environments.
+The package is ESM-only and does not target legacy runtimes or polyfill-driven environments.
 
 ## Security
 
@@ -133,4 +133,4 @@ The public package surface is intentionally narrow:
 
 ## Status
 
-The repository is currently in an implementation bootstrap phase. Design and API direction are documented in `PURPOSE.md`, `DESIGN.md`, and `suggestions.md`.
+The v1 core is implemented and under review/hardening. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.
