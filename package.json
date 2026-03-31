@@ -20,6 +20,8 @@
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "check:package-metadata": "node scripts/check-package-metadata.mjs",
+    "check:pack-smoke": "node scripts/check-pack-smoke.mjs",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
     "test:browser-like": "tsx --test test/browser-like.test.ts"

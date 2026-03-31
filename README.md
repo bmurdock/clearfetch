@@ -136,6 +136,8 @@ The public package surface is intentionally narrow:
 
 - `npm install`: install development dependencies
 - `npm run build`: compile the package into `dist/`
+- `npm run check:package-metadata`: validate publish metadata and zero-runtime-dependency posture
+- `npm run check:pack-smoke`: smoke-test the packed tarball from a clean temporary install
 - `npm run lint`: run TypeScript static checks
 - `npm test`: run the test suite
 
