@@ -116,9 +116,11 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 
 ## Release and CI
 
+- CI lints GitHub Actions workflows before merge.
 - CI runs lint, test, and build checks on supported Node.js versions.
 - CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `20`.
 - Dependency review runs on pull requests.
+- The release workflow supports a non-publishing dry-run path via manual dispatch.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
 

@@ -8,11 +8,26 @@ Expected flow:
 
 1. Merge reviewed changes into `main`.
 2. Confirm `CI` and dependency review checks are passing.
-3. Create an annotated release tag in the form `vX.Y.Z`.
-4. Push the tag to GitHub.
-5. Let the `Release` GitHub Actions workflow publish the package.
+3. Optionally run the `Release` workflow manually to exercise the non-publishing dry-run path.
+4. Create an annotated release tag in the form `vX.Y.Z`.
+5. Push the tag to GitHub.
+6. Let the `Release` GitHub Actions workflow publish the package.
 
 Local `npm publish` should not be used for normal releases.
+
+## Release dry-run
+
+The `Release` workflow supports a manual, non-publishing validation path through
+GitHub Actions `workflow_dispatch`.
+
+That dry-run path should verify:
+
+- install, lint, test, and build steps
+- package creation with `npm pack`
+- publishability with `npm publish --dry-run`
+
+Use the dry-run path before relying on a first release or after making workflow
+changes that affect packaging or publishing.
 
 ## Repository protections
 
