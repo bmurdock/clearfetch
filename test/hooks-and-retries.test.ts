@@ -527,6 +527,54 @@ test('afterResponse may read the response body without breaking json parsing', a
   }
 })
 
+test('beforeRequest cannot mutate execution options through context.options', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const client = createClient({
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            ;(context.options as { method?: string }).method = 'POST'
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) => error instanceof TypeError,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('afterResponse cannot mutate parse behavior through context.options', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const client = createClient({
+      hooks: {
+        afterResponse: [
+          async (context) => {
+            ;(context.options as { responseType?: string }).responseType = 'raw'
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) => error instanceof TypeError,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('afterResponse body reads do not prevent HttpError bodyText capture', async () => {
   const originalFetch = globalThis.fetch
   const seenBodies: string[] = []

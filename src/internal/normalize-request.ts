@@ -2,6 +2,7 @@ import { ConfigError } from '../errors.js'
 import type {
   BeforeRequestContext,
   ClientDefaults,
+  HookRequestOptions,
   Hooks,
   NormalizedRequestOptions,
   PrimitiveQueryValue,
@@ -46,35 +47,50 @@ const EMPTY_HOOKS: Required<Hooks> = {
 
 const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text) as unknown
 
+export interface ExecutionBeforeRequestContext extends BeforeRequestContext {
+  _internalOptions: NormalizedRequestOptions
+}
+
 export function createBeforeRequestContext(
   input: string | URL,
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
-): BeforeRequestContext {
+): ExecutionBeforeRequestContext {
   const url = resolveRequestURL(input, defaults.baseURL, options.query)
   const normalized = normalizeRequestOptions(defaults, options)
   const body = resolveRequestBody(normalized)
   validateRetryableBody(body, normalized.retry)
+  const optionsView = createHookRequestOptions(normalized)
 
-  const context: BeforeRequestContext = {
+  const context: ExecutionBeforeRequestContext = {
     input,
     url,
     headers: normalized.headers,
-    options: {
-      ...normalized,
-    },
+    _internalOptions: normalized,
+    options: optionsView,
   }
 
   if (body !== undefined) {
-    context.body = body
-    context.options.body = body
+    Object.defineProperty(context, 'body', {
+      configurable: false,
+      enumerable: true,
+      value: body,
+      writable: false,
+    })
   }
+
+  Object.defineProperty(context, 'options', {
+    configurable: false,
+    enumerable: true,
+    value: optionsView,
+    writable: false,
+  })
 
   return context
 }
 
 export function buildRequestFromContext(
-  context: BeforeRequestContext,
+  context: ExecutionBeforeRequestContext,
   signal?: AbortSignal,
 ): Request {
   if (!(context.url instanceof URL)) {
@@ -82,7 +98,7 @@ export function buildRequestFromContext(
   }
 
   const init: RequestInit = {
-    method: context.options.method,
+    method: context._internalOptions.method,
     headers: context.headers,
   }
 
@@ -92,8 +108,8 @@ export function buildRequestFromContext(
 
   if (signal !== undefined) {
     init.signal = signal
-  } else if (context.options.signal !== undefined) {
-    init.signal = context.options.signal
+  } else if (context._internalOptions.signal !== undefined) {
+    init.signal = context._internalOptions.signal
   }
 
   return new Request(context.url, init)
@@ -451,4 +467,66 @@ function validateRetryableBody(
       'Retry is not supported for streaming request bodies',
     )
   }
+}
+
+export function createHookRequestOptions(
+  options: NormalizedRequestOptions,
+): HookRequestOptions {
+  const snapshot: HookRequestOptions = {
+    method: options.method,
+    responseType: options.responseType,
+    retry:
+      options.retry === false
+        ? false
+        : Object.freeze({
+            ...options.retry,
+            retryOnStatuses: Object.freeze([...options.retry.retryOnStatuses]),
+            retryOnMethods: Object.freeze([...options.retry.retryOnMethods]),
+          }),
+    parseJson: options.parseJson,
+  }
+
+  if (options.query !== undefined) {
+    Object.defineProperty(snapshot, 'query', {
+      configurable: false,
+      enumerable: true,
+      value: freezeQueryParams(options.query),
+      writable: false,
+    })
+  }
+
+  if (options.timeout !== undefined) {
+    Object.defineProperty(snapshot, 'timeout', {
+      configurable: false,
+      enumerable: true,
+      value: options.timeout,
+      writable: false,
+    })
+  }
+
+  if (options.signal !== undefined) {
+    Object.defineProperty(snapshot, 'signal', {
+      configurable: false,
+      enumerable: true,
+      value: options.signal,
+      writable: false,
+    })
+  }
+
+  return Object.freeze(snapshot)
+}
+
+function freezeQueryParams(query: QueryParams): QueryParams {
+  const snapshot: QueryParams = {}
+
+  for (const [key, value] of Object.entries(query)) {
+    if (Array.isArray(value)) {
+      snapshot[key] = Object.freeze([...value]) as PrimitiveQueryValue[]
+      continue
+    }
+
+    snapshot[key] = value
+  }
+
+  return Object.freeze(snapshot)
 }

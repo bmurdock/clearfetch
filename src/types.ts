@@ -56,19 +56,38 @@ export interface ClientDefaults {
   parseJson?: (text: string) => unknown
 }
 
+export interface HookRetryOptions {
+  readonly attempts: number
+  readonly backoffMs: number
+  readonly maxBackoffMs: number
+  readonly multiplier: number
+  readonly retryOnStatuses: readonly number[]
+  readonly retryOnMethods: readonly RequestMethod[]
+}
+
+export interface HookRequestOptions {
+  readonly method: RequestMethod
+  readonly query?: QueryParams
+  readonly timeout?: number
+  readonly signal?: AbortSignal
+  readonly responseType: ResponseType
+  readonly retry: false | HookRetryOptions
+  readonly parseJson: (text: string) => unknown
+}
+
 export interface BeforeRequestContext {
   input: string | URL
   url: URL
   headers: Headers
-  body?: BodyInit | null
-  options: NormalizedRequestOptions
+  readonly body?: BodyInit | null
+  readonly options: HookRequestOptions
 }
 
 export interface AfterResponseContext {
   input: string | URL
   request: Request
   response: Response
-  options: NormalizedRequestOptions
+  readonly options: HookRequestOptions
 }
 
 export interface ErrorContext {
@@ -76,7 +95,7 @@ export interface ErrorContext {
   request?: Request
   response?: Response
   error: unknown
-  options?: NormalizedRequestOptions
+  readonly options?: HookRequestOptions
 }
 
 export type BeforeRequestHook = (

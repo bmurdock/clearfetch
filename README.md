@@ -76,6 +76,12 @@ const api = createClient({
 `Response`, so reading the body there does not consume the response used for normal
 parsing or `HttpError` creation.
 
+Hook scope is intentionally narrow:
+
+- `beforeRequest` may mutate headers and may replace the URL with a final absolute URL
+- `afterResponse` and `onError` are observational only apart from throwing
+- `context.options` is read-only hook metadata, not a supported mutation surface
+
 ### Error handling
 
 ```ts
@@ -106,6 +112,7 @@ try {
 - `afterResponse` receives a cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
 - `beforeRequest` may override the URL only with a final absolute URL.
+- `beforeRequest` may mutate headers, but hook option metadata is read-only.
 - Retry support is opt-in and conservative by default.
 - Retry support does not allow streaming request bodies.
 - The package performs no telemetry or hidden network activity beyond the caller's request.

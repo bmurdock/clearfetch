@@ -58,7 +58,11 @@ test('createBeforeRequestContext resolves relative input with baseURL and merges
     'https://api.example.com/users?page=2&tags=design&tags=types',
   )
   assert.equal(context.headers.get('accept'), 'application/vnd.clearfetch+json')
-  assert.equal(context.options.hooks.beforeRequest.length, 1)
+  assert.equal(context.options.method, 'GET')
+  assert.deepEqual(context.options.query, {
+    page: 2,
+    tags: ['design', 'types'],
+  })
 })
 
 test('normalizeRequestOptions rejects body plus json', () => {

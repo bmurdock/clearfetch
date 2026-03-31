@@ -19,6 +19,8 @@ export type {
   ClientDefaults,
   ErrorContext,
   Hooks,
+  HookRequestOptions,
+  HookRetryOptions,
   HttpClient,
   NormalizedRequestOptions,
   OnErrorHook,

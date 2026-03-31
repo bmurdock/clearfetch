@@ -747,8 +747,9 @@ In particular:
 
 - hooks may mutate headers
 - hooks may replace the URL
-- hooks may replace the body only if they preserve request validity
-- hooks may not mutate hidden internal execution state such as retry bookkeeping
+- hooks may not mutate normalized execution options directly
+- `afterResponse` and `onError` are observational-only apart from throwing
+- hook metadata exposed through `context.options` is read-only and must not act as a hidden mutation surface
 
 If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute URL. Relative replacement URLs are invalid and must fail with `ConfigError`.
 
