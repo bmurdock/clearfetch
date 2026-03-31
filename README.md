@@ -33,6 +33,12 @@ const user = await api.get<{ id: string; name: string }>('/users/123')
 ### Extended client defaults
 
 ```ts
+import { createClient } from 'clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
 const authed = api.extend({
   headers: {
     Authorization: 'Bearer token',
@@ -73,7 +79,11 @@ parsing or `HttpError` creation.
 ### Error handling
 
 ```ts
-import { HttpError, ParseError, TimeoutError } from 'clearfetch'
+import { HttpError, ParseError, TimeoutError, createClient } from 'clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
 
 try {
   await api.get('/users/123')
@@ -119,7 +129,7 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 - CI lints GitHub Actions workflows before merge.
 - CI runs lint, test, and build checks on supported Node.js versions.
 - CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `20`.
-- Dependency review runs on pull requests.
+- Dependency review is configured for pull requests and manual validation, but requires the relevant GitHub security features to be enabled on the repository.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
