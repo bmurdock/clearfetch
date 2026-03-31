@@ -13,5 +13,7 @@ test('package entrypoint loads', () => {
     'NetworkError',
     'ParseError',
     'TimeoutError',
+    'createClient',
+    'request',
   ])
 })

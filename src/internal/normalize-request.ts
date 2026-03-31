@@ -64,7 +64,10 @@ export function createBeforeRequestContext(
   return context
 }
 
-export function buildRequestFromContext(context: BeforeRequestContext): Request {
+export function buildRequestFromContext(
+  context: BeforeRequestContext,
+  signal?: AbortSignal,
+): Request {
   if (!(context.url instanceof URL)) {
     throw new ConfigError('beforeRequest URL overrides must be absolute URLs')
   }
@@ -78,7 +81,9 @@ export function buildRequestFromContext(context: BeforeRequestContext): Request 
     init.body = context.body
   }
 
-  if (context.options.signal !== undefined) {
+  if (signal !== undefined) {
+    init.signal = signal
+  } else if (context.options.signal !== undefined) {
     init.signal = context.options.signal
   }
 

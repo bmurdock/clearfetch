@@ -1,3 +1,6 @@
+export { createClient } from './client.js'
+export { request } from './request.js'
+
 export {
   AbortRequestError,
   ConfigError,
