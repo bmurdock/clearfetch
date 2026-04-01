@@ -2,12 +2,16 @@
 
 A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript runtimes.
 
+```bash
+npm install @bmurdock/clearfetch
+```
+
 ## Usage
 
 ### One-off request
 
 ```ts
-import { request } from 'clearfetch'
+import { request } from '@bmurdock/clearfetch'
 
 const user = await request<{ id: string; name: string }>(
   'https://api.example.com/users/123',
@@ -17,7 +21,7 @@ const user = await request<{ id: string; name: string }>(
 ### Reusable client
 
 ```ts
-import { createClient } from 'clearfetch'
+import { createClient } from '@bmurdock/clearfetch'
 
 const api = createClient({
   baseURL: 'https://api.example.com',
@@ -33,7 +37,7 @@ const user = await api.get<{ id: string; name: string }>('/users/123')
 ### Extended client defaults
 
 ```ts
-import { createClient } from 'clearfetch'
+import { createClient } from '@bmurdock/clearfetch'
 
 const api = createClient({
   baseURL: 'https://api.example.com',
@@ -85,7 +89,12 @@ Hook scope is intentionally narrow:
 ### Error handling
 
 ```ts
-import { HttpError, ParseError, TimeoutError, createClient } from 'clearfetch'
+import {
+  HttpError,
+  ParseError,
+  TimeoutError,
+  createClient,
+} from '@bmurdock/clearfetch'
 
 const api = createClient({
   baseURL: 'https://api.example.com',
@@ -161,4 +170,4 @@ The public package surface is intentionally narrow:
 
 ## Status
 
-`clearfetch` is ready for its initial `1.0.0` release. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.
+`clearfetch` is ready for its initial `1.0.0` release as `@bmurdock/clearfetch`. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.

@@ -17,6 +17,7 @@ const tarballPath = path.join(rootDir, packResult.filename)
 
 assertPackedFiles(packResult.files)
 
+const packageName = '@bmurdock/clearfetch'
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
 
 try {
@@ -24,7 +25,7 @@ try {
   await writeFile(
     importSmokeFile,
     [
-      "import * as mod from 'clearfetch'",
+      `import * as mod from '${packageName}'`,
       '',
       "if (typeof mod.request !== 'function') throw new Error('missing request export')",
       "if (typeof mod.createClient !== 'function') throw new Error('missing createClient export')",
@@ -37,7 +38,7 @@ try {
   await writeFile(
     smokeFile,
     [
-      "import { createClient, request } from 'clearfetch'",
+      `import { createClient, request } from '${packageName}'`,
       '',
       "const rawPromise: Promise<Response> = request('https://api.example.com', { responseType: 'raw' })",
       'void rawPromise',
