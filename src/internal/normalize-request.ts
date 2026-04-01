@@ -9,6 +9,7 @@ import type {
   QueryParams,
   RequestMethod,
   RequestOptions,
+  ResponseType,
   RetryOptions,
 } from '../types.js'
 
@@ -22,7 +23,7 @@ const REQUEST_METHODS = new Set<RequestMethod>([
   'OPTIONS',
 ])
 
-const RESPONSE_TYPES = new Set([
+const RESPONSE_TYPES = new Set<ResponseType>([
   'json',
   'text',
   'blob',
@@ -45,7 +46,7 @@ const EMPTY_HOOKS: Required<Hooks> = {
   onError: [],
 }
 
-const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text) as unknown
+const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text)
 
 export interface ExecutionBeforeRequestContext extends BeforeRequestContext {
   _internalOptions: NormalizedRequestOptions
@@ -280,7 +281,10 @@ function normalizeTimeout(timeout?: number): number | undefined {
 }
 
 function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
-  if (typeof responseType !== 'string' || !RESPONSE_TYPES.has(responseType)) {
+  if (
+    typeof responseType !== 'string' ||
+    !RESPONSE_TYPES.has(responseType as ResponseType)
+  ) {
     throw new ConfigError(`Unsupported responseType: ${String(responseType)}`)
   }
 

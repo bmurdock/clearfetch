@@ -77,6 +77,27 @@ const authed = api.extend({
 const profile = await authed.get('/me')
 ```
 
+### Conservative retries
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+  retry: {
+    attempts: 3,
+    backoffMs: 200,
+    maxBackoffMs: 1_000,
+    retryOnMethods: ['GET', 'HEAD'],
+    retryOnStatuses: [429, 503],
+  },
+})
+
+const response = await api.get('/status')
+```
+
+Retries are disabled by default. When enabled, they are intentionally conservative and do not allow streaming request bodies.
+
 ### Hooks
 
 ```ts
@@ -138,10 +159,34 @@ try {
 }
 ```
 
+### Runtime validation
+
+TypeScript generics describe the expected response shape, but they do not validate response data at runtime.
+
+```ts
+import { z } from 'zod'
+import { createClient } from '@gavoryn/clearfetch'
+
+const User = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const data = await api.get<unknown>('/users/123')
+const user = User.parse(data)
+```
+
+If you need end-to-end runtime safety, validate parsed data with a schema library such as Zod or Valibot after the request resolves.
+
 ## Behavior notes
 
 - Non-2xx responses throw `HttpError`.
 - JSON mode returns `undefined` for empty response bodies.
+- No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
 - Hook failures are not wrapped as `NetworkError`.
 - `afterResponse` receives a cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.

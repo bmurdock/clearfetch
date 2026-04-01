@@ -1,5 +1,4 @@
 import {
-  AbortRequestError,
   ConfigError,
   HttpClientError,
   HttpError,
@@ -46,8 +45,6 @@ export async function executeRequest<T = unknown>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const context = createBeforeRequestContext(input, defaults, options)
-    let currentRequest: Request | undefined
-    let currentResponse: Response | undefined
 
     try {
       await runBeforeRequestHooks(context)
@@ -59,7 +56,6 @@ export async function executeRequest<T = unknown>(
 
       try {
         const request = buildRequestFromContext(context, timeout.signal)
-        currentRequest = request
         const response = await fetchWithHandling({
           attempt,
           context,
@@ -68,7 +64,6 @@ export async function executeRequest<T = unknown>(
           request,
           timeout,
         })
-        currentResponse = response
 
         await runAfterResponseHooks({
           input,

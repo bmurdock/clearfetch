@@ -1,3 +1,5 @@
+import type { ResponseType } from './types.js'
+
 export class HttpClientError extends Error {
   readonly code: string
   declare readonly cause?: unknown
@@ -65,12 +67,12 @@ export class HttpError extends HttpClientError {
 
 export class ParseError extends HttpClientError {
   readonly response: Response
-  readonly responseType: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'raw'
+  readonly responseType: ResponseType
   readonly bodyText?: string
 
   constructor(params: {
     response: Response
-    responseType: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'raw'
+    responseType: ResponseType
     bodyText?: string
     cause?: unknown
   }) {
