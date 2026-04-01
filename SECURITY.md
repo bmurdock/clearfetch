@@ -13,7 +13,13 @@ Legacy runtimes, polyfill-driven environments, and unsupported platform shims ar
 
 Please do not open a public GitHub issue for a suspected security vulnerability.
 
-Instead, report the issue privately to the maintainer through GitHub security reporting when available. If a private reporting channel is not configured yet, contact the maintainer directly and include:
+Instead, use GitHub's private vulnerability reporting for this repository:
+
+1. Open the repository on GitHub.
+2. Go to the `Security` tab.
+3. Use the private vulnerability reporting flow to submit the report.
+
+Please include:
 
 - a short description of the issue
 - the affected versions or commit range if known
