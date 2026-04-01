@@ -97,6 +97,7 @@ function assertPackedFiles(files) {
     .filter((filePath) => {
       return (
         !filePath.startsWith('dist/') &&
+        filePath !== 'LICENSE' &&
         filePath !== 'README.md' &&
         filePath !== 'package.json'
       )
