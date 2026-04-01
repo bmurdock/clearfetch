@@ -34,6 +34,31 @@ const api = createClient({
 const user = await api.get<{ id: string; name: string }>('/users/123')
 ```
 
+### JSON request bodies
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const created = await api.post<{ id: string }>('/users', {
+  json: {
+    name: 'Ada Lovelace',
+    role: 'admin',
+  },
+})
+```
+
+If `json` is provided, clearfetch:
+
+- serializes the value with `JSON.stringify()`
+- sets `Content-Type: application/json` if it is not already present
+- rejects the request with `ConfigError` if `body` is also provided
+
+Use `body` directly only when you want to send a raw payload such as `FormData`, `URLSearchParams`, or pre-serialized text.
+
 ### Extended client defaults
 
 ```ts
@@ -124,6 +149,8 @@ try {
 - `beforeRequest` may mutate headers, but hook option metadata is read-only.
 - Retry support is opt-in and conservative by default.
 - Retry support does not allow streaming request bodies.
+- The `json` helper serializes request bodies and sets `Content-Type: application/json` when absent.
+- `body` and `json` cannot be used together.
 - The package performs no telemetry or hidden network activity beyond the caller's request.
 
 ## Supported runtimes
@@ -148,6 +175,7 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 - CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `20`.
 - Dependency review is configured for pull requests and manual validation, but requires the relevant GitHub security features to be enabled on the repository.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
+- npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
 
@@ -170,4 +198,4 @@ The public package surface is intentionally narrow:
 
 ## Status
 
-`clearfetch` is ready for its initial `1.0.0` release as `@gavoryn/clearfetch`. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.
+`clearfetch` is published as `@gavoryn/clearfetch`. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.

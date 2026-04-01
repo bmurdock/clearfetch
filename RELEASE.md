@@ -45,11 +45,18 @@ Release tags should be annotated and should be signed when practical.
 
 If signed tags are not yet mandatory for every maintainer environment, they should still be treated as the target policy for official releases.
 
-## npm account and token requirements
+## npm account and trusted publishing requirements
 
 The npm account used to administer the package should require 2FA.
 
-Publishing from CI should use an npm automation token stored as the `NPM_TOKEN` GitHub Actions secret for the `npm` environment. That token should have the minimum scope necessary for publishing this package.
+Publishing from CI should use npm trusted publishing through GitHub Actions OIDC, not a long-lived write token.
+
+The npm package settings for `@gavoryn/clearfetch` should define a trusted publisher with:
+
+- organization or user: `bmurdock`
+- repository: `clearfetch`
+- workflow filename: `release.yml`
+- environment name: `npm`
 
 ## GitHub Actions configuration
 
@@ -57,10 +64,10 @@ The release workflow assumes:
 
 - GitHub Actions is enabled for the repository
 - an environment named `npm` exists
-- the `npm` environment contains an `NPM_TOKEN` secret
+- the npm package has a matching trusted publisher configured on npmjs.com
 - maintainers review changes to workflow files with the same care as runtime code
 
-The release workflow uses `id-token: write` so npm provenance can be attached during publish.
+The release workflow uses `id-token: write` so npm can exchange the workflow identity for publish access. When trusted publishing is configured, npm also generates provenance automatically for public packages from public repositories.
 
 ## Runtime and security expectations
 
