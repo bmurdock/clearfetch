@@ -161,4 +161,4 @@ The public package surface is intentionally narrow:
 
 ## Status
 
-The v1 core is implemented and under review/hardening. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.
+`clearfetch` is ready for its initial `1.0.0` release. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.
