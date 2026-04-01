@@ -6,6 +6,25 @@ A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript
 npm install @gavoryn/clearfetch
 ```
 
+## Why clearfetch?
+
+Use clearfetch when you want a thin layer over native `fetch`, not a separate transport abstraction.
+
+- reusable client defaults for `baseURL`, headers, timeout, retries, and hooks
+- JSON request/response convenience without runtime dependencies
+- predictable typed errors instead of repeating the same `fetch` boilerplate
+- a small surface area that is easy to audit
+
+## Not a fit if...
+
+clearfetch is intentionally narrow. It is probably not the right client if you need:
+
+- upload or download progress APIs
+- interceptor-style response rewriting or a middleware ecosystem
+- legacy CommonJS or old-runtime support
+- automatic caching, cookie jars, XSRF helpers, or transport adapters
+- a broader, older, more feature-rich abstraction like axios
+
 ## Usage
 
 ### One-off request
@@ -59,6 +78,23 @@ If `json` is provided, clearfetch:
 
 Use `body` directly only when you want to send a raw payload such as `FormData`, `URLSearchParams`, or pre-serialized text.
 
+### Raw body payloads
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const form = new FormData()
+form.set('avatar', fileInput.files[0])
+
+await api.post('/profile/avatar', {
+  body: form,
+})
+```
+
 ### Extended client defaults
 
 ```ts
@@ -97,6 +133,25 @@ const response = await api.get('/status')
 ```
 
 Retries are disabled by default. When enabled, they are intentionally conservative and do not allow streaming request bodies.
+
+### Abort a request
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const controller = new AbortController()
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const promise = api.get('/reports/current', {
+  signal: controller.signal,
+})
+
+controller.abort()
+
+await promise
+```
 
 ### Hooks
 
@@ -151,12 +206,30 @@ try {
 } catch (error) {
   if (error instanceof HttpError) {
     console.error(error.status, error.bodyText)
-  } else if (error instanceof TimeoutError) {
-    console.error(error.timeout)
   } else if (error instanceof ParseError) {
     console.error(error.bodyText)
+  } else if (error instanceof TimeoutError) {
+    console.error(error.timeout)
   }
 }
+```
+
+### Text and raw responses
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const health = await api.get('/health', {
+  responseType: 'text',
+})
+
+const rawResponse = await api.get('/download', {
+  responseType: 'raw',
+})
 ```
 
 ### Runtime validation
@@ -197,6 +270,14 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - The `json` helper serializes request bodies and sets `Content-Type: application/json` when absent.
 - `body` and `json` cannot be used together.
 - The package performs no telemetry or hidden network activity beyond the caller's request.
+
+## Important limitations by design
+
+- The package stays close to native `fetch` rather than inventing a separate transport model.
+- Hooks are intentionally narrower than axios-style interceptors.
+- Retries are conservative and explicit, not aggressive or automatic.
+- The package is ESM-only and targets modern runtimes only.
+- The public API is intentionally small; missing features are often deliberate non-goals, not incomplete work.
 
 ## Supported runtimes
 

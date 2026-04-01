@@ -1,6 +1,6 @@
 {
   "name": "@gavoryn/clearfetch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript runtimes.",
   "type": "module",
   "sideEffects": false,
