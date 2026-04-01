@@ -17,7 +17,7 @@ const tarballPath = path.join(rootDir, packResult.filename)
 
 assertPackedFiles(packResult.files)
 
-const packageName = '@bmurdock/clearfetch'
+const packageName = '@gavoryn/clearfetch'
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
 
 try {
