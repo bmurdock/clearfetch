@@ -88,3 +88,11 @@ export class ParseError extends HttpClientError {
     }
   }
 }
+
+export function isHttpClientError(error: unknown): error is HttpClientError {
+  return error instanceof HttpClientError
+}
+
+export function isHttpError(error: unknown): error is HttpError {
+  return error instanceof HttpError
+}

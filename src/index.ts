@@ -6,6 +6,8 @@ export {
   ConfigError,
   HttpClientError,
   HttpError,
+  isHttpClientError,
+  isHttpError,
   NetworkError,
   ParseError,
   TimeoutError,

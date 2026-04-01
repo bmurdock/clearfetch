@@ -10,6 +10,8 @@ npm install @gavoryn/clearfetch
 
 Use clearfetch when you want a thin layer over native `fetch`, not a separate transport abstraction.
 
+Choose it when you want:
+
 - reusable client defaults for `baseURL`, headers, timeout, retries, and hooks
 - JSON request/response convenience without runtime dependencies
 - predictable typed errors instead of repeating the same `fetch` boilerplate
@@ -24,6 +26,8 @@ clearfetch is intentionally narrow. It is probably not the right client if you n
 - legacy CommonJS or old-runtime support
 - automatic caching, cookie jars, XSRF helpers, or transport adapters
 - a broader, older, more feature-rich abstraction like axios
+
+Hooks are intentionally not axios-style interceptors.
 
 ## Usage
 
@@ -133,6 +137,7 @@ const response = await api.get('/status')
 ```
 
 Retries are disabled by default. When enabled, they are intentionally conservative and do not allow streaming request bodies.
+They are a convenience for bounded retry cases, not a general resilience framework.
 
 ### Abort a request
 
@@ -187,6 +192,8 @@ Hook scope is intentionally narrow:
 - `afterResponse` and `onError` are observational only apart from throwing
 - `context.options` is read-only hook metadata, not a supported mutation surface
 
+Cloned `afterResponse` inspection is intended for ordinary API payloads, not large streaming or heavy binary workflows.
+
 ### Error handling
 
 ```ts
@@ -195,6 +202,7 @@ import {
   ParseError,
   TimeoutError,
   createClient,
+  isHttpClientError,
 } from '@gavoryn/clearfetch'
 
 const api = createClient({
@@ -204,7 +212,9 @@ const api = createClient({
 try {
   await api.get('/users/123')
 } catch (error) {
-  if (error instanceof HttpError) {
+  if (!isHttpClientError(error)) {
+    throw error
+  } else if (error instanceof HttpError) {
     console.error(error.status, error.bodyText)
   } else if (error instanceof ParseError) {
     console.error(error.bodyText)
@@ -249,7 +259,7 @@ const api = createClient({
   baseURL: 'https://api.example.com',
 })
 
-const data = await api.get<unknown>('/users/123')
+const data: unknown = await api.get<unknown>('/users/123')
 const user = User.parse(data)
 ```
 
@@ -259,6 +269,7 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 
 - Non-2xx responses throw `HttpError`.
 - JSON mode returns `undefined` for empty response bodies.
+- In JSON mode, successful empty bodies resolve as `T | undefined`.
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
 - Hook failures are not wrapped as `NetworkError`.
 - `afterResponse` receives a cloned `Response` for safe inspection.
