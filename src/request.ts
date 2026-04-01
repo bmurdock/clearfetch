@@ -1,6 +1,12 @@
 import { executeRequest } from './internal/execute-request.js'
 import type { RequestOptions } from './types.js'
 
+/**
+ * Performs a one-off HTTP request without creating a client instance.
+ *
+ * The default response mode is `json`, which returns `T | undefined` for
+ * empty response bodies.
+ */
 export function request<T = unknown>(
   input: string | URL,
   options?: RequestOptions & { responseType?: 'json' },

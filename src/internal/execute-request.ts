@@ -34,6 +34,8 @@ export async function executeRequest<T = unknown>(
   options: RequestOptions = {},
   fetchImpl: FetchLike = fetch,
 ): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
+  // Determine retry bounds from a normalized first pass, then rebuild the
+  // full execution context per attempt so hook mutations do not leak across retries.
   const initialContext = createBeforeRequestContext(input, defaults, options)
   const maxAttempts =
     initialContext._internalOptions.retry === false
@@ -104,6 +106,8 @@ export async function executeRequest<T = unknown>(
 }
 
 export function createClient(defaults: ClientDefaults = {}): HttpClient {
+  // Snapshot defaults once so client behavior does not drift if caller-owned
+  // objects are mutated after client creation.
   const frozenDefaults = snapshotClientDefaults(defaults)
 
   return {

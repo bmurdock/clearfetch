@@ -1,3 +1,6 @@
+/**
+ * Supported HTTP methods for the public request surface.
+ */
 export type RequestMethod =
   | 'GET'
   | 'POST'
@@ -7,6 +10,11 @@ export type RequestMethod =
   | 'HEAD'
   | 'OPTIONS'
 
+/**
+ * Supported response parsing modes.
+ *
+ * `json` is the default mode. `raw` returns the native `Response`.
+ */
 export type ResponseType =
   | 'json'
   | 'text'
@@ -23,6 +31,11 @@ export type QueryValue =
 
 export type QueryParams = Record<string, QueryValue>
 
+/**
+ * Conservative retry configuration.
+ *
+ * Retries are opt-in and intended for bounded, explicit use.
+ */
 export interface RetryOptions {
   attempts?: number
   backoffMs?: number
@@ -32,6 +45,9 @@ export interface RetryOptions {
   retryOnMethods?: RequestMethod[]
 }
 
+/**
+ * Per-request configuration for `request()` and client method calls.
+ */
 export interface RequestOptions {
   method?: RequestMethod
   headers?: HeadersInit
@@ -46,6 +62,9 @@ export interface RequestOptions {
   parseJson?: (text: string) => unknown
 }
 
+/**
+ * Shared defaults captured by a client created with `createClient()`.
+ */
 export interface ClientDefaults {
   baseURL?: string | URL
   headers?: HeadersInit
@@ -56,6 +75,9 @@ export interface ClientDefaults {
   parseJson?: (text: string) => unknown
 }
 
+/**
+ * Read-only retry metadata exposed to hooks.
+ */
 export interface HookRetryOptions {
   readonly attempts: number
   readonly backoffMs: number
@@ -65,6 +87,11 @@ export interface HookRetryOptions {
   readonly retryOnMethods: readonly RequestMethod[]
 }
 
+/**
+ * Read-only normalized request metadata exposed to hooks.
+ *
+ * Hooks may inspect these values, but they are not a supported mutation surface.
+ */
 export interface HookRequestOptions {
   readonly method: RequestMethod
   readonly query?: QueryParams
@@ -75,6 +102,12 @@ export interface HookRequestOptions {
   readonly parseJson: (text: string) => unknown
 }
 
+/**
+ * Context passed to `beforeRequest` hooks.
+ *
+ * Hooks may mutate `headers` and may replace `url` with a final absolute URL.
+ * Other request metadata is exposed through `options` as read-only state.
+ */
 export interface BeforeRequestContext {
   input: string | URL
   url: URL
@@ -83,6 +116,11 @@ export interface BeforeRequestContext {
   readonly options: HookRequestOptions
 }
 
+/**
+ * Context passed to `afterResponse` hooks.
+ *
+ * `response` is a cloned `Response` intended for safe inspection.
+ */
 export interface AfterResponseContext {
   input: string | URL
   request: Request
@@ -90,6 +128,9 @@ export interface AfterResponseContext {
   readonly options: HookRequestOptions
 }
 
+/**
+ * Context passed to `onError` hooks after the failure has been normalized.
+ */
 export interface ErrorContext {
   input: string | URL
   request?: Request
@@ -110,6 +151,11 @@ export type OnErrorHook = (
   context: ErrorContext,
 ) => void | Promise<void>
 
+/**
+ * Lifecycle hook configuration.
+ *
+ * Client-level hooks run before request-level hooks.
+ */
 export interface Hooks {
   beforeRequest?: BeforeRequestHook[]
   afterResponse?: AfterResponseHook[]
@@ -130,6 +176,9 @@ export interface NormalizedRequestOptions {
   parseJson: (text: string) => unknown
 }
 
+/**
+ * Reusable client API produced by `createClient()`.
+ */
 export interface HttpClient {
   request<T = unknown>(
     input: string | URL,

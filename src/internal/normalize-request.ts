@@ -71,6 +71,8 @@ export function createBeforeRequestContext(
   }
 
   if (body !== undefined) {
+    // `body` remains readable to hooks, but execution uses `_internalOptions`
+    // so hook metadata cannot silently rewrite normalized behavior.
     Object.defineProperty(context, 'body', {
       configurable: false,
       enumerable: true,
@@ -472,6 +474,9 @@ function validateRetryableBody(
 export function createHookRequestOptions(
   options: NormalizedRequestOptions,
 ): HookRequestOptions {
+  // Hooks get a read-only metadata view rather than the internal mutable
+  // execution object. This keeps hook inspection useful without turning
+  // `context.options` into a hidden mutation surface.
   const snapshot: HookRequestOptions = {
     method: options.method,
     responseType: options.responseType,
