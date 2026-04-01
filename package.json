@@ -42,7 +42,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.5.2",
-    "happy-dom": "^18.0.1",
+    "happy-dom": "^20.8.9",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
