@@ -2,7 +2,6 @@ import {
   ConfigError,
   HttpClientError,
   HttpError,
-  NetworkError,
 } from '../errors.js'
 import type {
   AfterResponseContext,
@@ -23,6 +22,11 @@ import {
   type ExecutionBeforeRequestContext,
 } from './normalize-request.js'
 import { parseResponse } from './parse-response.js'
+import {
+  getRetryDelay,
+  shouldRetryError,
+  shouldRetryStatus,
+} from './retry-policy.js'
 
 type FetchLike = typeof fetch
 
@@ -288,58 +292,6 @@ async function runOnErrorHooks(
   }
 }
 
-function shouldRetry(
-  error: HttpClientError,
-  method: RequestMethod,
-  retry: false | Required<RetryOptions>,
-  attempt: number,
-): boolean {
-  if (retry === false || attempt >= retry.attempts) {
-    return false
-  }
-
-  if (!retry.retryOnMethods.includes(method)) {
-    return false
-  }
-
-  if (error instanceof HttpError) {
-    return retry.retryOnStatuses.includes(error.status)
-  }
-
-  return error instanceof NetworkError
-}
-
-function shouldRetryStatus(
-  response: Response,
-  method: RequestMethod,
-  retry: false | Required<RetryOptions>,
-  attempt: number,
-): boolean {
-  if (retry === false || attempt >= retry.attempts) {
-    return false
-  }
-
-  if (!retry.retryOnMethods.includes(method)) {
-    return false
-  }
-
-  return retry.retryOnStatuses.includes(response.status)
-}
-
-function getRetryDelay(
-  retry: false | { backoffMs: number; maxBackoffMs: number; multiplier: number },
-  attempt: number,
-): number {
-  if (retry === false) {
-    return 0
-  }
-
-  return Math.min(
-    retry.backoffMs * retry.multiplier ** (attempt - 1),
-    retry.maxBackoffMs,
-  )
-}
-
 function createTimeoutController(signal?: AbortSignal, timeout?: number): {
   cleanup: () => void
   didTimeout: () => boolean
@@ -445,7 +397,7 @@ async function fetchWithHandling(params: {
     )
 
     if (
-      shouldRetry(
+      shouldRetryError(
         normalized,
         context._internalOptions.method,
         context._internalOptions.retry,
@@ -541,7 +493,7 @@ async function parseWithHandling<T>(params: {
     )
 
     if (
-      shouldRetry(
+      shouldRetryError(
         normalized,
         context._internalOptions.method,
         context._internalOptions.retry,
