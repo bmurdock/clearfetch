@@ -391,6 +391,44 @@ test('retryable HTTP responses do not read body text before retrying', async () 
   }
 })
 
+test('abort during HTTP retry backoff stops promptly with AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    return new Response('retry', {
+      status: 503,
+      statusText: 'Service Unavailable',
+    })
+  }
+
+  try {
+    const promise = request('https://api.example.com/users', {
+      signal: controller.signal,
+      retry: {
+        attempts: 2,
+        backoffMs: 50,
+        maxBackoffMs: 50,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    controller.abort()
+
+    await assert.rejects(
+      () => promise,
+      (error) => error instanceof AbortRequestError,
+    )
+    assert.equal(attempts, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('beforeRequest may replace the URL with a final absolute URL', async () => {
   const originalFetch = globalThis.fetch
   const urls: string[] = []

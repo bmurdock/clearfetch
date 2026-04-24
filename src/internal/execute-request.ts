@@ -179,6 +179,28 @@ class RetrySignal {
   }
 }
 
+async function waitForRetry(params: {
+  attempt: number
+  context: ExecutionBeforeRequestContext
+  request: Request
+  timeout: ReturnType<typeof createTimeoutController>
+}): Promise<void> {
+  const { attempt, context, request, timeout } = params
+
+  try {
+    await sleep(
+      getRetryDelay(context._internalOptions.retry, attempt),
+      request.signal,
+    )
+  } catch (delayError) {
+    throw normalizeExecutionError(
+      context._internalOptions.timeout !== undefined && timeout.didTimeout()
+        ? { error: delayError, timeout: context._internalOptions.timeout }
+        : { error: delayError },
+    )
+  }
+}
+
 async function fetchWithHandling(params: {
   attempt: number
   context: ExecutionBeforeRequestContext
@@ -213,18 +235,7 @@ async function fetchWithHandling(params: {
         attempt,
       )
     ) {
-      try {
-        await sleep(
-          getRetryDelay(context._internalOptions.retry, attempt),
-          request.signal,
-        )
-      } catch (delayError) {
-        throw normalizeExecutionError(
-          context._internalOptions.timeout !== undefined && timeout.didTimeout()
-            ? { error: delayError, timeout: context._internalOptions.timeout }
-            : { error: delayError },
-        )
-      }
+      await waitForRetry({ attempt, context, request, timeout })
       throw new RetrySignal(normalized)
     }
 
@@ -266,18 +277,7 @@ async function parseWithHandling<T>(params: {
       attempt,
     )
   ) {
-    try {
-      await sleep(
-        getRetryDelay(context._internalOptions.retry, attempt),
-        request.signal,
-      )
-    } catch (delayError) {
-      throw normalizeExecutionError(
-        context._internalOptions.timeout !== undefined && timeout.didTimeout()
-          ? { error: delayError, timeout: context._internalOptions.timeout }
-          : { error: delayError },
-      )
-    }
+    await waitForRetry({ attempt, context, request, timeout })
 
     throw new RetrySignal(new HttpError({
       status: response.status,
@@ -309,18 +309,7 @@ async function parseWithHandling<T>(params: {
         attempt,
       )
     ) {
-      try {
-        await sleep(
-          getRetryDelay(context._internalOptions.retry, attempt),
-          request.signal,
-        )
-      } catch (delayError) {
-        throw normalizeExecutionError(
-          context._internalOptions.timeout !== undefined && timeout.didTimeout()
-            ? { error: delayError, timeout: context._internalOptions.timeout }
-            : { error: delayError },
-        )
-      }
+      await waitForRetry({ attempt, context, request, timeout })
       throw new RetrySignal(normalized)
     }
 
