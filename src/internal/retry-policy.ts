@@ -25,6 +25,23 @@ export function normalizeRetry(
   defaultRetry?: false | RetryOptions,
   requestRetry?: false | RetryOptions,
 ): false | Required<RetryOptions> {
+  const source = selectRetrySource(defaultRetry, requestRetry)
+  if (source === false) {
+    return false
+  }
+
+  const retry = buildRetry(source)
+  validateRetryNumbers(retry)
+  validateRetryOnStatuses(retry.retryOnStatuses)
+  validateRetryOnMethods(retry.retryOnMethods)
+
+  return retry
+}
+
+function selectRetrySource(
+  defaultRetry?: false | RetryOptions,
+  requestRetry?: false | RetryOptions,
+): false | RetryOptions {
   if (requestRetry === false) {
     return false
   }
@@ -34,31 +51,41 @@ export function normalizeRetry(
     return false
   }
 
-  const attempts = source.attempts ?? DEFAULT_RETRY.attempts
-  const backoffMs = source.backoffMs ?? DEFAULT_RETRY.backoffMs
-  const maxBackoffMs = source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs
-  const multiplier = source.multiplier ?? DEFAULT_RETRY.multiplier
-  const retryOnStatuses = source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses
-  const retryOnMethods = source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods
+  return source
+}
 
-  if (!Number.isInteger(attempts) || attempts <= 0) {
+function buildRetry(source: RetryOptions): Required<RetryOptions> {
+  return {
+    attempts: source.attempts ?? DEFAULT_RETRY.attempts,
+    backoffMs: source.backoffMs ?? DEFAULT_RETRY.backoffMs,
+    maxBackoffMs: source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs,
+    multiplier: source.multiplier ?? DEFAULT_RETRY.multiplier,
+    retryOnStatuses: source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses,
+    retryOnMethods: source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods,
+  }
+}
+
+function validateRetryNumbers(retry: Required<RetryOptions>): void {
+  if (!Number.isInteger(retry.attempts) || retry.attempts <= 0) {
     throw new ConfigError('`retry.attempts` must be a positive integer')
   }
 
-  if (!Number.isFinite(backoffMs) || backoffMs < 0) {
+  if (!Number.isFinite(retry.backoffMs) || retry.backoffMs < 0) {
     throw new ConfigError('`retry.backoffMs` must be a non-negative finite number')
   }
 
-  if (!Number.isFinite(maxBackoffMs) || maxBackoffMs < 0) {
+  if (!Number.isFinite(retry.maxBackoffMs) || retry.maxBackoffMs < 0) {
     throw new ConfigError(
       '`retry.maxBackoffMs` must be a non-negative finite number',
     )
   }
 
-  if (!Number.isFinite(multiplier) || multiplier < 1) {
+  if (!Number.isFinite(retry.multiplier) || retry.multiplier < 1) {
     throw new ConfigError('`retry.multiplier` must be a finite number >= 1')
   }
+}
 
+function validateRetryOnStatuses(retryOnStatuses: number[]): void {
   if (!Array.isArray(retryOnStatuses)) {
     throw new ConfigError('`retry.retryOnStatuses` must be an array of status codes')
   }
@@ -70,7 +97,9 @@ export function normalizeRetry(
       )
     }
   }
+}
 
+function validateRetryOnMethods(retryOnMethods: string[]): void {
   if (!Array.isArray(retryOnMethods)) {
     throw new ConfigError('`retry.retryOnMethods` must be an array of methods')
   }
@@ -81,15 +110,6 @@ export function normalizeRetry(
         '`retry.retryOnMethods` must contain supported uppercase methods',
       )
     }
-  }
-
-  return {
-    attempts,
-    backoffMs,
-    maxBackoffMs,
-    multiplier,
-    retryOnStatuses,
-    retryOnMethods,
   }
 }
 

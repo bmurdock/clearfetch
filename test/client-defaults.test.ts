@@ -65,6 +65,34 @@ test('snapshotClientDefaults copies mutable default inputs', () => {
   )
 })
 
+test('snapshotClientDefaults preserves property insertion order', () => {
+  const snapshot = snapshotClientDefaults({
+    baseURL: 'https://api.example.com',
+    headers: {
+      Accept: 'application/json',
+    },
+    timeout: 1000,
+    responseType: 'json',
+    retry: {
+      attempts: 2,
+    },
+    hooks: {
+      beforeRequest: [() => {}],
+    },
+    parseJson: JSON.parse,
+  })
+
+  assert.deepEqual(Object.keys(snapshot), [
+    'baseURL',
+    'headers',
+    'timeout',
+    'responseType',
+    'retry',
+    'hooks',
+    'parseJson',
+  ])
+})
+
 test('mergeClientDefaults lets child scalar defaults override parent defaults', () => {
   const parentParser = (text: string) => ({ parent: text })
   const childParser = (text: string) => ({ text })
