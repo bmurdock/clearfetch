@@ -10,6 +10,10 @@ import {
 } from '../src/errors.js'
 import { createClient } from '../src/index.js'
 import { request } from '../src/request.js'
+import {
+  withMockedFetch,
+  withPatchedResponseMethod,
+} from './helpers/mock-fetch.js'
 
 test('beforeRequest hooks run in client-then-request order', async () => {
   const originalFetch = globalThis.fetch
@@ -56,67 +60,63 @@ test('beforeRequest hooks run in client-then-request order', async () => {
 })
 
 test('afterResponse sees raw responses before HttpError classification', async () => {
-  const originalFetch = globalThis.fetch
   const seenStatuses: number[] = []
 
-  globalThis.fetch = async () =>
-    new Response('missing', {
-      status: 404,
-      statusText: 'Not Found',
-    })
+  await withMockedFetch(
+    async () =>
+      new Response('missing', {
+        status: 404,
+        statusText: 'Not Found',
+      }),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async (context) => {
+              seenStatuses.push(context.response.status)
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        afterResponse: [
-          async (context) => {
-            seenStatuses.push(context.response.status)
-          },
-        ],
-      },
-    })
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof HttpError && error.status === 404,
+      )
 
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof HttpError && error.status === 404,
-    )
-
-    assert.deepEqual(seenStatuses, [404])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.deepEqual(seenStatuses, [404])
+    },
+  )
 })
 
 test('onError receives normalized failures after classification', async () => {
-  const originalFetch = globalThis.fetch
   const errorNames: string[] = []
 
-  globalThis.fetch = async () =>
-    new Response('missing', {
-      status: 404,
-      statusText: 'Not Found',
-    })
+  await withMockedFetch(
+    async () =>
+      new Response('missing', {
+        status: 404,
+        statusText: 'Not Found',
+      }),
+    async () => {
+      const client = createClient({
+        hooks: {
+          onError: [
+            async (context) => {
+              errorNames.push((context.error as Error).name)
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        onError: [
-          async (context) => {
-            errorNames.push((context.error as Error).name)
-          },
-        ],
-      },
-    })
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof HttpError,
+      )
 
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof HttpError,
-    )
-
-    assert.deepEqual(errorNames, ['HttpError'])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.deepEqual(errorNames, ['HttpError'])
+    },
+  )
 })
 
 test('request timeout surfaces TimeoutError', async () => {
@@ -347,17 +347,11 @@ test('retry attempts rebuild POST json bodies after the first attempt', async ()
 })
 
 test('retryable HTTP responses do not read body text before retrying', async () => {
-  const originalFetch = globalThis.fetch
   const originalText = Response.prototype.text
   let attempts = 0
   let textCalls = 0
 
-  Response.prototype.text = function textWithCount(this: Response): Promise<string> {
-    textCalls += 1
-    return originalText.call(this)
-  }
-
-  globalThis.fetch = async () => {
+  const fetchImpl: typeof fetch = async () => {
     attempts += 1
 
     if (attempts < 3) {
@@ -370,25 +364,33 @@ test('retryable HTTP responses do not read body text before retrying', async () 
     return new Response(JSON.stringify({ ok: true }))
   }
 
-  try {
-    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
-      retry: {
-        attempts: 3,
-        backoffMs: 1,
-        maxBackoffMs: 1,
-        multiplier: 1,
-        retryOnStatuses: [503],
-        retryOnMethods: ['GET'],
-      },
-    })
+  await withPatchedResponseMethod(
+    'text',
+    function textWithCount(this: Response): Promise<string> {
+      textCalls += 1
+      return originalText.call(this)
+    },
+    () =>
+      withMockedFetch(fetchImpl, async () => {
+        const result = await request<{ ok: boolean }>(
+          'https://api.example.com/users',
+          {
+            retry: {
+              attempts: 3,
+              backoffMs: 1,
+              maxBackoffMs: 1,
+              multiplier: 1,
+              retryOnStatuses: [503],
+              retryOnMethods: ['GET'],
+            },
+          },
+        )
 
-    assert.deepEqual(result, { ok: true })
-    assert.equal(attempts, 3)
-    assert.equal(textCalls, 1)
-  } finally {
-    Response.prototype.text = originalText
-    globalThis.fetch = originalFetch
-  }
+        assert.deepEqual(result, { ok: true })
+        assert.equal(attempts, 3)
+        assert.equal(textCalls, 1)
+      }),
+  )
 })
 
 test('abort during HTTP retry backoff stops promptly with AbortRequestError', async () => {
@@ -464,98 +466,92 @@ test('beforeRequest may replace the URL with a final absolute URL', async () => 
 })
 
 test('beforeRequest rejects relative URL overrides', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              ;(context as { url: unknown }).url = '/relative'
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        beforeRequest: [
-          async (context) => {
-            ;(context as { url: unknown }).url = '/relative'
-          },
-        ],
-      },
-    })
-
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) =>
-        error instanceof ConfigError &&
-        error.message === 'beforeRequest URL overrides must be absolute URLs',
-    )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof ConfigError &&
+          error.message === 'beforeRequest URL overrides must be absolute URLs',
+      )
+    },
+  )
 })
 
 test('retry does not run for unsupported methods even when status is eligible', async () => {
-  const originalFetch = globalThis.fetch
   let attempts = 0
 
-  globalThis.fetch = async () => {
-    attempts += 1
-    return new Response('retry', {
-      status: 503,
-      statusText: 'Service Unavailable',
-    })
-  }
+  await withMockedFetch(
+    async () => {
+      attempts += 1
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    },
+    async () => {
+      await assert.rejects(
+        () =>
+          request('https://api.example.com/users', {
+            method: 'POST',
+            retry: {
+              attempts: 3,
+              backoffMs: 1,
+              maxBackoffMs: 2,
+              multiplier: 2,
+              retryOnStatuses: [503],
+              retryOnMethods: ['GET'],
+            },
+          }),
+        (error) => error instanceof HttpError && error.status === 503,
+      )
 
-  try {
-    await assert.rejects(
-      () =>
-        request('https://api.example.com/users', {
-          method: 'POST',
-          retry: {
-            attempts: 3,
-            backoffMs: 1,
-            maxBackoffMs: 2,
-            multiplier: 2,
-            retryOnStatuses: [503],
-            retryOnMethods: ['GET'],
-          },
-        }),
-      (error) => error instanceof HttpError && error.status === 503,
-    )
-
-    assert.equal(attempts, 1)
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.equal(attempts, 1)
+    },
+  )
 })
 
 test('retry does not run for unsupported statuses', async () => {
-  const originalFetch = globalThis.fetch
   let attempts = 0
 
-  globalThis.fetch = async () => {
-    attempts += 1
-    return new Response('no retry', {
-      status: 500,
-      statusText: 'Internal Server Error',
-    })
-  }
+  await withMockedFetch(
+    async () => {
+      attempts += 1
+      return new Response('no retry', {
+        status: 500,
+        statusText: 'Internal Server Error',
+      })
+    },
+    async () => {
+      await assert.rejects(
+        () =>
+          request('https://api.example.com/users', {
+            retry: {
+              attempts: 3,
+              backoffMs: 1,
+              maxBackoffMs: 2,
+              multiplier: 2,
+              retryOnStatuses: [503],
+              retryOnMethods: ['GET'],
+            },
+          }),
+        (error) => error instanceof HttpError && error.status === 500,
+      )
 
-  try {
-    await assert.rejects(
-      () =>
-        request('https://api.example.com/users', {
-          retry: {
-            attempts: 3,
-            backoffMs: 1,
-            maxBackoffMs: 2,
-            multiplier: 2,
-            retryOnStatuses: [503],
-            retryOnMethods: ['GET'],
-          },
-        }),
-      (error) => error instanceof HttpError && error.status === 500,
-    )
-
-    assert.equal(attempts, 1)
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.equal(attempts, 1)
+    },
+  )
 })
 
 test('retry runs for network failures when method is eligible', async () => {
@@ -632,301 +628,288 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
 })
 
 test('hook failures propagate instead of being swallowed', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async () => {
+              throw new Error('hook failure')
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        beforeRequest: [
-          async () => {
-            throw new Error('hook failure')
-          },
-        ],
-      },
-    })
-
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof Error && error.message === 'hook failure',
-    )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof Error && error.message === 'hook failure',
+      )
+    },
+  )
 })
 
 test('afterResponse hook failures propagate without NetworkError wrapping', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async () => {
+              throw new Error('afterResponse failure')
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        afterResponse: [
-          async () => {
-            throw new Error('afterResponse failure')
-          },
-        ],
-      },
-    })
-
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) =>
-        error instanceof Error &&
-        !(error instanceof NetworkError) &&
-        error.message === 'afterResponse failure',
-    )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof Error &&
+          !(error instanceof NetworkError) &&
+          error.message === 'afterResponse failure',
+      )
+    },
+  )
 })
 
 test('responses are not cloned when no afterResponse hooks are registered', async () => {
-  const originalFetch = globalThis.fetch
   const originalClone = Response.prototype.clone
   let cloneCalls = 0
 
-  Response.prototype.clone = function cloneWithCount(this: Response): Response {
-    cloneCalls += 1
-    return originalClone.call(this)
-  }
+  await withPatchedResponseMethod(
+    'clone',
+    function cloneWithCount(this: Response): Response {
+      cloneCalls += 1
+      return originalClone.call(this)
+    },
+    () =>
+      withMockedFetch(
+        async () => new Response(JSON.stringify({ ok: true })),
+        async () => {
+          const result = await request<{ ok: boolean }>(
+            'https://api.example.com/users',
+          )
 
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
-
-  try {
-    const result = await request<{ ok: boolean }>('https://api.example.com/users')
-
-    assert.deepEqual(result, { ok: true })
-    assert.equal(cloneCalls, 0)
-  } finally {
-    Response.prototype.clone = originalClone
-    globalThis.fetch = originalFetch
-  }
+          assert.deepEqual(result, { ok: true })
+          assert.equal(cloneCalls, 0)
+        },
+      ),
+  )
 })
 
 test('onError hook failures propagate without replacing them with NetworkError', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () =>
-    new Response('missing', {
-      status: 404,
-      statusText: 'Not Found',
-    })
+  await withMockedFetch(
+    async () =>
+      new Response('missing', {
+        status: 404,
+        statusText: 'Not Found',
+      }),
+    async () => {
+      const client = createClient({
+        hooks: {
+          onError: [
+            async () => {
+              throw new Error('onError failure')
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        onError: [
-          async () => {
-            throw new Error('onError failure')
-          },
-        ],
-      },
-    })
-
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) =>
-        error instanceof Error &&
-        !(error instanceof NetworkError) &&
-        error.message === 'onError failure',
-    )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof Error &&
+          !(error instanceof NetworkError) &&
+          error.message === 'onError failure',
+      )
+    },
+  )
 })
 
 test('afterResponse may read the response body without breaking json parsing', async () => {
-  const originalFetch = globalThis.fetch
   const seenBodies: string[] = []
 
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async (context) => {
+              seenBodies.push(await context.response.text())
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        afterResponse: [
-          async (context) => {
-            seenBodies.push(await context.response.text())
-          },
-        ],
-      },
-    })
+      const result = await client.get<{ ok: boolean }>(
+        'https://api.example.com/users',
+      )
 
-    const result = await client.get<{ ok: boolean }>('https://api.example.com/users')
-
-    assert.deepEqual(seenBodies, ['{"ok":true}'])
-    assert.deepEqual(result, { ok: true })
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.deepEqual(seenBodies, ['{"ok":true}'])
+      assert.deepEqual(result, { ok: true })
+    },
+  )
 })
 
 test('beforeRequest cannot mutate execution options through context.options', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              ;(context.options as { method?: string }).method = 'POST'
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        beforeRequest: [
-          async (context) => {
-            ;(context.options as { method?: string }).method = 'POST'
-          },
-        ],
-      },
-    })
-
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof TypeError,
-    )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof TypeError,
+      )
+    },
+  )
 })
 
 test('afterResponse cannot mutate parse behavior through context.options', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async (context) => {
+              ;(context.options as { responseType?: string }).responseType =
+                'raw'
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        afterResponse: [
-          async (context) => {
-            ;(context.options as { responseType?: string }).responseType = 'raw'
-          },
-        ],
-      },
-    })
-
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof TypeError,
-    )
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof TypeError,
+      )
+    },
+  )
 })
 
 test('hook contexts share one read-only options snapshot per failed attempt', async () => {
-  const originalFetch = globalThis.fetch
   let beforeOptions: unknown
   let afterOptions: unknown
   let errorOptions: unknown
 
-  globalThis.fetch = async () =>
-    new Response('missing', {
-      status: 404,
-      statusText: 'Not Found',
-    })
+  await withMockedFetch(
+    async () =>
+      new Response('missing', {
+        status: 404,
+        statusText: 'Not Found',
+      }),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              beforeOptions = context.options
+            },
+          ],
+          afterResponse: [
+            async (context) => {
+              afterOptions = context.options
+            },
+          ],
+          onError: [
+            async (context) => {
+              errorOptions = context.options
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        beforeRequest: [
-          async (context) => {
-            beforeOptions = context.options
-          },
-        ],
-        afterResponse: [
-          async (context) => {
-            afterOptions = context.options
-          },
-        ],
-        onError: [
-          async (context) => {
-            errorOptions = context.options
-          },
-        ],
-      },
-    })
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof HttpError && error.status === 404,
+      )
 
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof HttpError && error.status === 404,
-    )
-
-    assert.equal(afterOptions, beforeOptions)
-    assert.equal(errorOptions, beforeOptions)
-    assert.ok(Object.isFrozen(beforeOptions))
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.equal(afterOptions, beforeOptions)
+      assert.equal(errorOptions, beforeOptions)
+      assert.ok(Object.isFrozen(beforeOptions))
+    },
+  )
 })
 
 test('network failure hook contexts share one read-only options snapshot per failed attempt', async () => {
-  const originalFetch = globalThis.fetch
   let beforeOptions: unknown
   let errorOptions: unknown
 
-  globalThis.fetch = async () => {
-    throw new TypeError('fetch failed')
-  }
+  await withMockedFetch(
+    async () => {
+      throw new TypeError('fetch failed')
+    },
+    async () => {
+      const client = createClient({
+        retry: false,
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              beforeOptions = context.options
+            },
+          ],
+          onError: [
+            async (context) => {
+              errorOptions = context.options
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      retry: false,
-      hooks: {
-        beforeRequest: [
-          async (context) => {
-            beforeOptions = context.options
-          },
-        ],
-        onError: [
-          async (context) => {
-            errorOptions = context.options
-          },
-        ],
-      },
-    })
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) => error instanceof NetworkError,
+      )
 
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) => error instanceof NetworkError,
-    )
-
-    assert.equal(errorOptions, beforeOptions)
-    assert.ok(Object.isFrozen(beforeOptions))
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.equal(errorOptions, beforeOptions)
+      assert.ok(Object.isFrozen(beforeOptions))
+    },
+  )
 })
 
 test('afterResponse body reads do not prevent HttpError bodyText capture', async () => {
-  const originalFetch = globalThis.fetch
   const seenBodies: string[] = []
 
-  globalThis.fetch = async () =>
-    new Response('missing', {
-      status: 404,
-      statusText: 'Not Found',
-    })
+  await withMockedFetch(
+    async () =>
+      new Response('missing', {
+        status: 404,
+        statusText: 'Not Found',
+      }),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async (context) => {
+              seenBodies.push(await context.response.text())
+            },
+          ],
+        },
+      })
 
-  try {
-    const client = createClient({
-      hooks: {
-        afterResponse: [
-          async (context) => {
-            seenBodies.push(await context.response.text())
-          },
-        ],
-      },
-    })
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof HttpError &&
+          error.status === 404 &&
+          error.bodyText === 'missing',
+      )
 
-    await assert.rejects(
-      () => client.get('https://api.example.com/users'),
-      (error) =>
-        error instanceof HttpError &&
-        error.status === 404 &&
-        error.bodyText === 'missing',
-    )
-
-    assert.deepEqual(seenBodies, ['missing'])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
+      assert.deepEqual(seenBodies, ['missing'])
+    },
+  )
 })
 
 test('request-level beforeRequest hook can override client header values', async () => {
