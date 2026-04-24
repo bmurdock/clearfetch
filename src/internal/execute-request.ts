@@ -19,7 +19,6 @@ import type {
 import { normalizeExecutionError } from './normalize-error.js'
 import {
   buildRequestFromContext,
-  createHookRequestOptions,
   createBeforeRequestContext,
   type ExecutionBeforeRequestContext,
 } from './normalize-request.js'
@@ -44,7 +43,10 @@ export async function executeRequest<T = unknown>(
   let lastError: HttpClientError | undefined
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const context = createBeforeRequestContext(input, defaults, options)
+    const context =
+      attempt === 1
+        ? initialContext
+        : createBeforeRequestContext(input, defaults, options)
 
     try {
       await runBeforeRequestHooks(context)
@@ -65,12 +67,15 @@ export async function executeRequest<T = unknown>(
           timeout,
         })
 
-        await runAfterResponseHooks({
-          input,
-          request,
-          response: response.clone(),
-          options: createHookRequestOptions(context._internalOptions),
-        }, context._internalOptions.hooks.afterResponse)
+        const afterResponseHooks = context._internalOptions.hooks.afterResponse
+        if (afterResponseHooks.length > 0) {
+          await runAfterResponseHooks({
+            input,
+            request,
+            response: response.clone(),
+            options: context.options,
+          }, afterResponseHooks)
+        }
 
         return await parseWithHandling<T>({
           attempt,
@@ -304,6 +309,23 @@ function shouldRetry(
   return error instanceof NetworkError
 }
 
+function shouldRetryStatus(
+  response: Response,
+  method: RequestMethod,
+  retry: false | Required<RetryOptions>,
+  attempt: number,
+): boolean {
+  if (retry === false || attempt >= retry.attempts) {
+    return false
+  }
+
+  if (!retry.retryOnMethods.includes(method)) {
+    return false
+  }
+
+  return retry.retryOnStatuses.includes(response.status)
+}
+
 function getRetryDelay(
   retry: false | { backoffMs: number; maxBackoffMs: number; multiplier: number },
   attempt: number,
@@ -448,7 +470,7 @@ async function fetchWithHandling(params: {
     const errorContext: ErrorContext = {
       input,
       error: normalized,
-      options: createHookRequestOptions(context._internalOptions),
+      options: context.options,
       request,
     }
 
@@ -473,6 +495,36 @@ async function parseWithHandling<T>(params: {
   timeout: ReturnType<typeof createTimeoutController>
 }): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
   const { attempt, context, input, request, response, timeout } = params
+
+  if (
+    !response.ok &&
+    shouldRetryStatus(
+      response,
+      context._internalOptions.method,
+      context._internalOptions.retry,
+      attempt,
+    )
+  ) {
+    try {
+      await sleep(
+        getRetryDelay(context._internalOptions.retry, attempt),
+        request.signal,
+      )
+    } catch (delayError) {
+      throw normalizeExecutionError(
+        context._internalOptions.timeout !== undefined && timeout.didTimeout()
+          ? { error: delayError, timeout: context._internalOptions.timeout }
+          : { error: delayError },
+      )
+    }
+
+    throw new RetrySignal(new HttpError({
+      status: response.status,
+      statusText: response.statusText,
+      response,
+      request,
+    }))
+  }
 
   try {
     return (await parseResponse<T>({
@@ -514,7 +566,7 @@ async function parseWithHandling<T>(params: {
     const errorContext: ErrorContext = {
       input,
       error: normalized,
-      options: createHookRequestOptions(context._internalOptions),
+      options: context.options,
       request,
       response: normalized instanceof HttpError ? normalized.response : response,
     }

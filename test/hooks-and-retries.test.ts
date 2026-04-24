@@ -217,6 +217,180 @@ test('retries use configured methods and statuses with bounded backoff', async (
   }
 })
 
+test('first attempt reuses the initial normalized context', async () => {
+  const originalFetch = globalThis.fetch
+  let stringifyCalls = 0
+
+  const payload = {
+    toJSON() {
+      stringifyCalls += 1
+      return { ok: true }
+    },
+  }
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      method: 'POST',
+      json: payload,
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(stringifyCalls, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry attempts rebuild hook context after the first attempt', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+  const seenHeaders: string[] = []
+
+  globalThis.fetch = async (input) => {
+    attempts += 1
+    const req = input as Request
+    seenHeaders.push(req.headers.get('x-attempt') ?? '')
+
+    if (attempts < 2) {
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            const previousAttempt = context.headers.get('x-attempt')
+            context.headers.set(
+              'x-attempt',
+              previousAttempt === null
+                ? String(attempts + 1)
+                : `${previousAttempt},leaked`,
+            )
+          },
+        ],
+      },
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(seenHeaders, ['1', '2'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry attempts rebuild POST json bodies after the first attempt', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+  let stringifyCalls = 0
+  const seenBodies: string[] = []
+
+  const payload = {
+    toJSON() {
+      stringifyCalls += 1
+      return { ok: true }
+    },
+  }
+
+  globalThis.fetch = async (input) => {
+    attempts += 1
+    const req = input as Request
+    seenBodies.push(await req.clone().text())
+
+    if (attempts < 2) {
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      method: 'POST',
+      json: payload,
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['POST'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(attempts, 2)
+    assert.equal(stringifyCalls, 2)
+    assert.deepEqual(seenBodies, ['{"ok":true}', '{"ok":true}'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retryable HTTP responses do not read body text before retrying', async () => {
+  const originalFetch = globalThis.fetch
+  const originalText = Response.prototype.text
+  let attempts = 0
+  let textCalls = 0
+
+  Response.prototype.text = function textWithCount(this: Response): Promise<string> {
+    textCalls += 1
+    return originalText.call(this)
+  }
+
+  globalThis.fetch = async () => {
+    attempts += 1
+
+    if (attempts < 3) {
+      return new Response('retry body should not be read', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      retry: {
+        attempts: 3,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(attempts, 3)
+    assert.equal(textCalls, 1)
+  } finally {
+    Response.prototype.text = originalText
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('beforeRequest may replace the URL with a final absolute URL', async () => {
   const originalFetch = globalThis.fetch
   const urls: string[] = []
@@ -470,6 +644,29 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
   }
 })
 
+test('responses are not cloned when no afterResponse hooks are registered', async () => {
+  const originalFetch = globalThis.fetch
+  const originalClone = Response.prototype.clone
+  let cloneCalls = 0
+
+  Response.prototype.clone = function cloneWithCount(this: Response): Response {
+    cloneCalls += 1
+    return originalClone.call(this)
+  }
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users')
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(cloneCalls, 0)
+  } finally {
+    Response.prototype.clone = originalClone
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('onError hook failures propagate without replacing them with NetworkError', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () =>
@@ -570,6 +767,90 @@ test('afterResponse cannot mutate parse behavior through context.options', async
       () => client.get('https://api.example.com/users'),
       (error) => error instanceof TypeError,
     )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('hook contexts share one read-only options snapshot per failed attempt', async () => {
+  const originalFetch = globalThis.fetch
+  let beforeOptions: unknown
+  let afterOptions: unknown
+  let errorOptions: unknown
+
+  globalThis.fetch = async () =>
+    new Response('missing', {
+      status: 404,
+      statusText: 'Not Found',
+    })
+
+  try {
+    const client = createClient({
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            beforeOptions = context.options
+          },
+        ],
+        afterResponse: [
+          async (context) => {
+            afterOptions = context.options
+          },
+        ],
+        onError: [
+          async (context) => {
+            errorOptions = context.options
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) => error instanceof HttpError && error.status === 404,
+    )
+
+    assert.equal(afterOptions, beforeOptions)
+    assert.equal(errorOptions, beforeOptions)
+    assert.ok(Object.isFrozen(beforeOptions))
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('network failure hook contexts share one read-only options snapshot per failed attempt', async () => {
+  const originalFetch = globalThis.fetch
+  let beforeOptions: unknown
+  let errorOptions: unknown
+
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed')
+  }
+
+  try {
+    const client = createClient({
+      retry: false,
+      hooks: {
+        beforeRequest: [
+          async (context) => {
+            beforeOptions = context.options
+          },
+        ],
+        onError: [
+          async (context) => {
+            errorOptions = context.options
+          },
+        ],
+      },
+    })
+
+    await assert.rejects(
+      () => client.get('https://api.example.com/users'),
+      (error) => error instanceof NetworkError,
+    )
+
+    assert.equal(errorOptions, beforeOptions)
+    assert.ok(Object.isFrozen(beforeOptions))
   } finally {
     globalThis.fetch = originalFetch
   }
