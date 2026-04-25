@@ -2,28 +2,37 @@ import {
   ConfigError,
   HttpClientError,
   HttpError,
-  NetworkError,
 } from '../errors.js'
 import type {
   AfterResponseContext,
   AfterResponseHook,
   ClientDefaults,
   ErrorContext,
-  Hooks,
   HttpClient,
   OnErrorHook,
   RequestMethod,
   RequestOptions,
-  RetryOptions,
 } from '../types.js'
+import {
+  mergeClientDefaults,
+  snapshotClientDefaults,
+} from './client-defaults.js'
 import { normalizeExecutionError } from './normalize-error.js'
 import {
   buildRequestFromContext,
-  createHookRequestOptions,
   createBeforeRequestContext,
   type ExecutionBeforeRequestContext,
 } from './normalize-request.js'
 import { parseResponse } from './parse-response.js'
+import {
+  getRetryDelay,
+  shouldRetryError,
+  shouldRetryStatus,
+} from './retry-policy.js'
+import {
+  createTimeoutController,
+  sleep,
+} from './timeout-controller.js'
 
 type FetchLike = typeof fetch
 
@@ -44,7 +53,10 @@ export async function executeRequest<T = unknown>(
   let lastError: HttpClientError | undefined
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const context = createBeforeRequestContext(input, defaults, options)
+    const context =
+      attempt === 1
+        ? initialContext
+        : createBeforeRequestContext(input, defaults, options)
 
     try {
       await runBeforeRequestHooks(context)
@@ -65,12 +77,15 @@ export async function executeRequest<T = unknown>(
           timeout,
         })
 
-        await runAfterResponseHooks({
-          input,
-          request,
-          response: response.clone(),
-          options: createHookRequestOptions(context._internalOptions),
-        }, context._internalOptions.hooks.afterResponse)
+        const afterResponseHooks = context._internalOptions.hooks.afterResponse
+        if (afterResponseHooks.length > 0) {
+          await runAfterResponseHooks({
+            input,
+            request,
+            response: response.clone(),
+            options: context.options,
+          }, afterResponseHooks)
+        }
 
         return await parseWithHandling<T>({
           attempt,
@@ -130,133 +145,6 @@ function createMethodCaller(
   ) => executeRequest<T>(input, defaults, { ...options, method })
 }
 
-function mergeClientDefaults(
-  parent: ClientDefaults,
-  child: ClientDefaults,
-): ClientDefaults {
-  const merged: ClientDefaults = {}
-
-  const baseURL = child.baseURL ?? parent.baseURL
-  if (baseURL !== undefined) {
-    merged.baseURL = baseURL
-  }
-
-  const timeout = child.timeout ?? parent.timeout
-  if (timeout !== undefined) {
-    merged.timeout = timeout
-  }
-
-  const responseType = child.responseType ?? parent.responseType
-  if (responseType !== undefined) {
-    merged.responseType = responseType
-  }
-
-  const retry = child.retry ?? parent.retry
-  if (retry !== undefined) {
-    merged.retry = retry
-  }
-
-  const parseJson = child.parseJson ?? parent.parseJson
-  if (parseJson !== undefined) {
-    merged.parseJson = parseJson
-  }
-
-  const headers = new Headers(parent.headers)
-  const childHeaders = new Headers(child.headers)
-  for (const [key, value] of childHeaders.entries()) {
-    headers.set(key, value)
-  }
-  if ([...headers.keys()].length > 0) {
-    merged.headers = headers
-  }
-
-  const hooks = {
-    beforeRequest: [
-      ...(parent.hooks?.beforeRequest ?? []),
-      ...(child.hooks?.beforeRequest ?? []),
-    ],
-    afterResponse: [
-      ...(parent.hooks?.afterResponse ?? []),
-      ...(child.hooks?.afterResponse ?? []),
-    ],
-    onError: [
-      ...(parent.hooks?.onError ?? []),
-      ...(child.hooks?.onError ?? []),
-    ],
-  }
-
-  if (hooks.beforeRequest.length + hooks.afterResponse.length + hooks.onError.length > 0) {
-    merged.hooks = hooks
-  }
-
-  return merged
-}
-
-function snapshotClientDefaults(defaults: ClientDefaults): ClientDefaults {
-  const snapshot: ClientDefaults = {}
-
-  if (defaults.baseURL !== undefined) {
-    snapshot.baseURL =
-      defaults.baseURL instanceof URL ? new URL(defaults.baseURL) : defaults.baseURL
-  }
-
-  if (defaults.headers !== undefined) {
-    snapshot.headers = new Headers(defaults.headers)
-  }
-
-  if (defaults.timeout !== undefined) {
-    snapshot.timeout = defaults.timeout
-  }
-
-  if (defaults.responseType !== undefined) {
-    snapshot.responseType = defaults.responseType
-  }
-
-  if (defaults.retry !== undefined) {
-    if (defaults.retry === false) {
-      snapshot.retry = false
-    } else {
-      const retry: RetryOptions = {
-        ...defaults.retry,
-      }
-
-      if (defaults.retry.retryOnStatuses !== undefined) {
-        retry.retryOnStatuses = defaults.retry.retryOnStatuses.slice()
-      }
-
-      if (defaults.retry.retryOnMethods !== undefined) {
-        retry.retryOnMethods = defaults.retry.retryOnMethods.slice()
-      }
-
-      snapshot.retry = retry
-    }
-  }
-
-  if (defaults.hooks !== undefined) {
-    const hooks: Hooks = {}
-
-    if (defaults.hooks.beforeRequest !== undefined) {
-      hooks.beforeRequest = defaults.hooks.beforeRequest.slice()
-    }
-
-    if (defaults.hooks.afterResponse !== undefined) {
-      hooks.afterResponse = defaults.hooks.afterResponse.slice()
-    }
-
-    if (defaults.hooks.onError !== undefined) {
-      hooks.onError = defaults.hooks.onError.slice()
-    }
-
-    snapshot.hooks = hooks
-  }
-
-  if (defaults.parseJson !== undefined) {
-    snapshot.parseJson = defaults.parseJson
-  }
-
-  return snapshot
-}
-
 async function runBeforeRequestHooks(
   context: ExecutionBeforeRequestContext,
 ): Promise<void> {
@@ -283,116 +171,33 @@ async function runOnErrorHooks(
   }
 }
 
-function shouldRetry(
-  error: HttpClientError,
-  method: RequestMethod,
-  retry: false | Required<RetryOptions>,
-  attempt: number,
-): boolean {
-  if (retry === false || attempt >= retry.attempts) {
-    return false
-  }
-
-  if (!retry.retryOnMethods.includes(method)) {
-    return false
-  }
-
-  if (error instanceof HttpError) {
-    return retry.retryOnStatuses.includes(error.status)
-  }
-
-  return error instanceof NetworkError
-}
-
-function getRetryDelay(
-  retry: false | { backoffMs: number; maxBackoffMs: number; multiplier: number },
-  attempt: number,
-): number {
-  if (retry === false) {
-    return 0
-  }
-
-  return Math.min(
-    retry.backoffMs * retry.multiplier ** (attempt - 1),
-    retry.maxBackoffMs,
-  )
-}
-
-function createTimeoutController(signal?: AbortSignal, timeout?: number): {
-  cleanup: () => void
-  didTimeout: () => boolean
-  signal?: AbortSignal
-} {
-  if (signal === undefined && timeout === undefined) {
-    return {
-      cleanup: () => undefined,
-      didTimeout: () => false,
-    }
-  }
-
-  const controller = new AbortController()
-  let timedOut = false
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-
-  const onAbort = () => {
-    controller.abort(signal?.reason)
-  }
-
-  if (signal?.aborted === true) {
-    controller.abort(signal.reason)
-  } else if (signal !== undefined) {
-    signal.addEventListener('abort', onAbort, { once: true })
-  }
-
-  if (timeout !== undefined) {
-    timeoutId = setTimeout(() => {
-      timedOut = true
-      controller.abort(new DOMException('Request timed out', 'AbortError'))
-    }, timeout)
-  }
-
-  return {
-    signal: controller.signal,
-    didTimeout: () => timedOut,
-    cleanup: () => {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId)
-      }
-
-      signal?.removeEventListener('abort', onAbort)
-    },
-  }
-}
-
-function sleep(duration: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const abortReason = signal?.reason ?? new DOMException('Aborted', 'AbortError')
-
-    if (signal?.aborted === true) {
-      reject(abortReason)
-      return
-    }
-
-    const timeoutId = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, duration)
-
-    const onAbort = () => {
-      clearTimeout(timeoutId)
-      signal?.removeEventListener('abort', onAbort)
-      reject(abortReason)
-    }
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 class RetrySignal {
   readonly error: HttpClientError
 
   constructor(error: HttpClientError) {
     this.error = error
+  }
+}
+
+async function waitForRetry(params: {
+  attempt: number
+  context: ExecutionBeforeRequestContext
+  request: Request
+  timeout: ReturnType<typeof createTimeoutController>
+}): Promise<void> {
+  const { attempt, context, request, timeout } = params
+
+  try {
+    await sleep(
+      getRetryDelay(context._internalOptions.retry, attempt),
+      request.signal,
+    )
+  } catch (delayError) {
+    throw normalizeExecutionError(
+      context._internalOptions.timeout !== undefined && timeout.didTimeout()
+        ? { error: delayError, timeout: context._internalOptions.timeout }
+        : { error: delayError },
+    )
   }
 }
 
@@ -423,32 +228,21 @@ async function fetchWithHandling(params: {
     )
 
     if (
-      shouldRetry(
+      shouldRetryError(
         normalized,
         context._internalOptions.method,
         context._internalOptions.retry,
         attempt,
       )
     ) {
-      try {
-        await sleep(
-          getRetryDelay(context._internalOptions.retry, attempt),
-          request.signal,
-        )
-      } catch (delayError) {
-        throw normalizeExecutionError(
-          context._internalOptions.timeout !== undefined && timeout.didTimeout()
-            ? { error: delayError, timeout: context._internalOptions.timeout }
-            : { error: delayError },
-        )
-      }
+      await waitForRetry({ attempt, context, request, timeout })
       throw new RetrySignal(normalized)
     }
 
     const errorContext: ErrorContext = {
       input,
       error: normalized,
-      options: createHookRequestOptions(context._internalOptions),
+      options: context.options,
       request,
     }
 
@@ -474,6 +268,25 @@ async function parseWithHandling<T>(params: {
 }): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
   const { attempt, context, input, request, response, timeout } = params
 
+  if (
+    !response.ok &&
+    shouldRetryStatus(
+      response,
+      context._internalOptions.method,
+      context._internalOptions.retry,
+      attempt,
+    )
+  ) {
+    await waitForRetry({ attempt, context, request, timeout })
+
+    throw new RetrySignal(new HttpError({
+      status: response.status,
+      statusText: response.statusText,
+      response,
+      request,
+    }))
+  }
+
   try {
     return (await parseResponse<T>({
       request,
@@ -489,32 +302,21 @@ async function parseWithHandling<T>(params: {
     )
 
     if (
-      shouldRetry(
+      shouldRetryError(
         normalized,
         context._internalOptions.method,
         context._internalOptions.retry,
         attempt,
       )
     ) {
-      try {
-        await sleep(
-          getRetryDelay(context._internalOptions.retry, attempt),
-          request.signal,
-        )
-      } catch (delayError) {
-        throw normalizeExecutionError(
-          context._internalOptions.timeout !== undefined && timeout.didTimeout()
-            ? { error: delayError, timeout: context._internalOptions.timeout }
-            : { error: delayError },
-        )
-      }
+      await waitForRetry({ attempt, context, request, timeout })
       throw new RetrySignal(normalized)
     }
 
     const errorContext: ErrorContext = {
       input,
       error: normalized,
-      options: createHookRequestOptions(context._internalOptions),
+      options: context.options,
       request,
       response: normalized instanceof HttpError ? normalized.response : response,
     }

@@ -2,7 +2,6 @@ import { ConfigError } from '../errors.js'
 import type {
   BeforeRequestContext,
   ClientDefaults,
-  HookRequestOptions,
   Hooks,
   NormalizedRequestOptions,
   PrimitiveQueryValue,
@@ -10,18 +9,9 @@ import type {
   RequestMethod,
   RequestOptions,
   ResponseType,
-  RetryOptions,
 } from '../types.js'
-
-const REQUEST_METHODS = new Set<RequestMethod>([
-  'GET',
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-  'HEAD',
-  'OPTIONS',
-])
+import { createHookRequestOptions } from './hook-options.js'
+import { REQUEST_METHODS, normalizeRetry } from './retry-policy.js'
 
 const RESPONSE_TYPES = new Set<ResponseType>([
   'json',
@@ -30,15 +20,6 @@ const RESPONSE_TYPES = new Set<ResponseType>([
   'arrayBuffer',
   'raw',
 ])
-
-const DEFAULT_RETRY: Required<RetryOptions> = {
-  attempts: 3,
-  backoffMs: 250,
-  maxBackoffMs: 2_000,
-  multiplier: 2,
-  retryOnStatuses: [429, 502, 503, 504],
-  retryOnMethods: ['GET', 'HEAD'],
-}
 
 const EMPTY_HOOKS: Required<Hooks> = {
   beforeRequest: [],
@@ -301,78 +282,6 @@ function normalizeParseJson(
   return parseJson as NormalizedRequestOptions['parseJson']
 }
 
-function normalizeRetry(
-  defaultRetry?: false | RetryOptions,
-  requestRetry?: false | RetryOptions,
-): false | Required<RetryOptions> {
-  if (requestRetry === false) {
-    return false
-  }
-
-  const source = requestRetry ?? defaultRetry
-  if (source === undefined || source === false) {
-    return false
-  }
-
-  const attempts = source.attempts ?? DEFAULT_RETRY.attempts
-  const backoffMs = source.backoffMs ?? DEFAULT_RETRY.backoffMs
-  const maxBackoffMs = source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs
-  const multiplier = source.multiplier ?? DEFAULT_RETRY.multiplier
-  const retryOnStatuses = source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses
-  const retryOnMethods = source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods
-
-  if (!Number.isInteger(attempts) || attempts <= 0) {
-    throw new ConfigError('`retry.attempts` must be a positive integer')
-  }
-
-  if (!Number.isFinite(backoffMs) || backoffMs < 0) {
-    throw new ConfigError('`retry.backoffMs` must be a non-negative finite number')
-  }
-
-  if (!Number.isFinite(maxBackoffMs) || maxBackoffMs < 0) {
-    throw new ConfigError(
-      '`retry.maxBackoffMs` must be a non-negative finite number',
-    )
-  }
-
-  if (!Number.isFinite(multiplier) || multiplier < 1) {
-    throw new ConfigError('`retry.multiplier` must be a finite number >= 1')
-  }
-
-  if (!Array.isArray(retryOnStatuses)) {
-    throw new ConfigError('`retry.retryOnStatuses` must be an array of status codes')
-  }
-
-  for (const status of retryOnStatuses) {
-    if (!Number.isInteger(status) || status < 100 || status > 599) {
-      throw new ConfigError(
-        '`retry.retryOnStatuses` must contain valid HTTP status codes',
-      )
-    }
-  }
-
-  if (!Array.isArray(retryOnMethods)) {
-    throw new ConfigError('`retry.retryOnMethods` must be an array of methods')
-  }
-
-  for (const method of retryOnMethods) {
-    if (typeof method !== 'string' || !REQUEST_METHODS.has(method as RequestMethod)) {
-      throw new ConfigError(
-        '`retry.retryOnMethods` must contain supported uppercase methods',
-      )
-    }
-  }
-
-  return {
-    attempts,
-    backoffMs,
-    maxBackoffMs,
-    multiplier,
-    retryOnStatuses,
-    retryOnMethods,
-  }
-}
-
 function resolveInputURL(input: string, base?: URL): URL {
   try {
     return new URL(input)
@@ -473,69 +382,4 @@ function validateRetryableBody(
       'Retry is not supported for streaming request bodies',
     )
   }
-}
-
-export function createHookRequestOptions(
-  options: NormalizedRequestOptions,
-): HookRequestOptions {
-  // Hooks get a read-only metadata view rather than the internal mutable
-  // execution object. This keeps hook inspection useful without turning
-  // `context.options` into a hidden mutation surface.
-  const snapshot: HookRequestOptions = {
-    method: options.method,
-    responseType: options.responseType,
-    retry:
-      options.retry === false
-        ? false
-        : Object.freeze({
-            ...options.retry,
-            retryOnStatuses: Object.freeze([...options.retry.retryOnStatuses]),
-            retryOnMethods: Object.freeze([...options.retry.retryOnMethods]),
-          }),
-    parseJson: options.parseJson,
-  }
-
-  if (options.query !== undefined) {
-    Object.defineProperty(snapshot, 'query', {
-      configurable: false,
-      enumerable: true,
-      value: freezeQueryParams(options.query),
-      writable: false,
-    })
-  }
-
-  if (options.timeout !== undefined) {
-    Object.defineProperty(snapshot, 'timeout', {
-      configurable: false,
-      enumerable: true,
-      value: options.timeout,
-      writable: false,
-    })
-  }
-
-  if (options.signal !== undefined) {
-    Object.defineProperty(snapshot, 'signal', {
-      configurable: false,
-      enumerable: true,
-      value: options.signal,
-      writable: false,
-    })
-  }
-
-  return Object.freeze(snapshot)
-}
-
-function freezeQueryParams(query: QueryParams): QueryParams {
-  const snapshot: QueryParams = {}
-
-  for (const [key, value] of Object.entries(query)) {
-    if (Array.isArray(value)) {
-      snapshot[key] = Object.freeze([...value]) as PrimitiveQueryValue[]
-      continue
-    }
-
-    snapshot[key] = value
-  }
-
-  return Object.freeze(snapshot)
 }
