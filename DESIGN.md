@@ -651,11 +651,13 @@ If the caller provides an external `AbortSignal`, that signal must be respected.
 
 If the external signal aborts first, the request must fail with an abort error rather than a timeout error.
 
+Where the runtime exposes an external abort reason, the package should preserve that reason as the `AbortRequestError` cause.
+
 ### Signal composition
 
 If both timeout and external abort are present, the package must compose them so that either can cancel the request.
 
-Signal-composition behavior must be deterministic and well tested.
+Signal-composition behavior must be deterministic and well tested. The first abort wins: an external abort that fires before the timeout must not later be reclassified as a timeout, and a timeout that fires first must remain a timeout.
 
 ### Cleanup
 
@@ -811,6 +813,7 @@ This means:
 
 - each retry attempt gets its own timeout window
 - the timeout does not represent a single total deadline across all attempts
+- the timeout window starts after that attempt's `beforeRequest` hooks complete
 
 This is simpler to implement and reason about. If a future version introduces total deadline support, it must do so explicitly.
 

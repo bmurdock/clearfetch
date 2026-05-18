@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.3
+
+Abort classification and release-guardrail hardening.
+
+Highlights:
+
+- preserve custom external abort reasons as `AbortRequestError.cause`
+- keep external aborts from being reclassified as timeouts when they win the race
+- preserve custom abort reasons during retry backoff cancellation
+- document advanced timeout, abort, retry, and hook URL behavior
+- replace the dependency-review placeholder with enforced dependency review
+- expand release and package smoke checks for metadata, exports, types, and blocked internal subpaths
+- block package lifecycle scripts in package metadata validation
+
 ## 1.0.2
 
 Internal efficiency and maintainability release.

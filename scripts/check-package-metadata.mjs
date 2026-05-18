@@ -8,6 +8,7 @@ const packageJson = JSON.parse(
 )
 
 assertNoRuntimeDependencies(packageJson)
+assertNoLifecycleScripts(packageJson)
 assertPublishWhitelist(packageJson)
 await assertPublishedEntrypointsExist(rootDir, packageJson)
 
@@ -17,6 +18,30 @@ function assertNoRuntimeDependencies(packageConfig) {
   const dependencies = packageConfig.dependencies
   if (dependencies !== undefined && Object.keys(dependencies).length > 0) {
     throw new Error('runtime dependencies must remain empty')
+  }
+}
+
+function assertNoLifecycleScripts(packageConfig) {
+  const lifecycleScripts = [
+    'preinstall',
+    'install',
+    'postinstall',
+    'prepare',
+    'prepack',
+    'postpack',
+    'prepublish',
+    'prepublishOnly',
+  ]
+  const scripts = packageConfig.scripts
+
+  if (scripts === undefined) {
+    return
+  }
+
+  for (const scriptName of lifecycleScripts) {
+    if (Object.hasOwn(scripts, scriptName)) {
+      throw new Error(`lifecycle script \`${scriptName}\` is not allowed`)
+    }
   }
 }
 

@@ -14,7 +14,15 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
   let timedOut = false
   let timeoutId: ReturnType<typeof setTimeout> | undefined
 
+  const clearTimeoutId = () => {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId)
+      timeoutId = undefined
+    }
+  }
+
   const onAbort = () => {
+    clearTimeoutId()
     controller.abort(signal?.reason)
   }
 
@@ -24,7 +32,7 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
     signal.addEventListener('abort', onAbort, { once: true })
   }
 
-  if (timeout !== undefined) {
+  if (timeout !== undefined && !controller.signal.aborted) {
     timeoutId = setTimeout(() => {
       timedOut = true
       controller.abort(new DOMException('Request timed out', 'AbortError'))
@@ -35,9 +43,7 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
     signal: controller.signal,
     didTimeout: () => timedOut,
     cleanup: () => {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId)
-      }
+      clearTimeoutId()
 
       signal?.removeEventListener('abort', onAbort)
     },
@@ -46,10 +52,8 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
 
 export function sleep(duration: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const abortReason = signal?.reason ?? new DOMException('Aborted', 'AbortError')
-
     if (signal?.aborted === true) {
-      reject(abortReason)
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
       return
     }
 
@@ -61,7 +65,7 @@ export function sleep(duration: number, signal?: AbortSignal): Promise<void> {
     const onAbort = () => {
       clearTimeout(timeoutId)
       signal?.removeEventListener('abort', onAbort)
-      reject(abortReason)
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
     }
 
     signal?.addEventListener('abort', onAbort, { once: true })
