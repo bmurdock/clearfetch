@@ -195,10 +195,43 @@ async function waitForRetry(params: {
   } catch (delayError) {
     throw normalizeExecutionError(
       context._internalOptions.timeout !== undefined && timeout.didTimeout()
-        ? { error: delayError, timeout: context._internalOptions.timeout }
-        : { error: delayError },
+        ? {
+            aborted: isSignalAbortReason(request.signal, delayError),
+            abortReason: request.signal.reason,
+            error: delayError,
+            timeout: context._internalOptions.timeout,
+          }
+        : {
+            aborted: isSignalAbortReason(request.signal, delayError),
+            abortReason: request.signal.reason,
+            error: delayError,
+          },
     )
   }
+}
+
+function isSignalAbortReason(signal: AbortSignal, error: unknown): boolean {
+  return signal.aborted && Object.is(error, signal.reason)
+}
+
+function isRequestAbort(signal: AbortSignal, error: unknown): boolean {
+  return (
+    isSignalAbortReason(signal, error) ||
+    (signal.aborted && isAbortLikeError(error))
+  )
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return true
+  }
+
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  )
 }
 
 async function fetchWithHandling(params: {
@@ -223,8 +256,17 @@ async function fetchWithHandling(params: {
   } catch (error) {
     const normalized = normalizeExecutionError(
       context._internalOptions.timeout !== undefined && timeout.didTimeout()
-        ? { error, timeout: context._internalOptions.timeout }
-        : { error },
+        ? {
+            aborted: isRequestAbort(request.signal, error),
+            abortReason: request.signal.reason,
+            error,
+            timeout: context._internalOptions.timeout,
+          }
+        : {
+            aborted: isRequestAbort(request.signal, error),
+            abortReason: request.signal.reason,
+            error,
+          },
     )
 
     if (
@@ -297,8 +339,17 @@ async function parseWithHandling<T>(params: {
   } catch (error) {
     const normalized = normalizeExecutionError(
       context._internalOptions.timeout !== undefined && timeout.didTimeout()
-        ? { error, timeout: context._internalOptions.timeout }
-        : { error },
+        ? {
+            aborted: isRequestAbort(request.signal, error),
+            abortReason: request.signal.reason,
+            error,
+            timeout: context._internalOptions.timeout,
+          }
+        : {
+            aborted: isRequestAbort(request.signal, error),
+            abortReason: request.signal.reason,
+            error,
+          },
     )
 
     if (

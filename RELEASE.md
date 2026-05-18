@@ -23,7 +23,8 @@ GitHub Actions `workflow_dispatch`.
 That dry-run path should verify:
 
 - install, lint, test, and build steps
-- package creation with `npm pack`
+- package metadata with `npm run check:package-metadata`
+- packed artifact behavior with `npm run check:pack-smoke`
 - publishability with `npm publish --dry-run`
 
 Use the dry-run path before relying on a first release or after making workflow

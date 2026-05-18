@@ -142,7 +142,10 @@ They are a convenience for bounded retry cases, not a general resilience framewo
 ### Abort a request
 
 ```ts
-import { createClient } from '@gavoryn/clearfetch'
+import {
+  AbortRequestError,
+  createClient,
+} from '@gavoryn/clearfetch'
 
 const controller = new AbortController()
 const api = createClient({
@@ -153,9 +156,15 @@ const promise = api.get('/reports/current', {
   signal: controller.signal,
 })
 
-controller.abort()
+controller.abort(new Error('user cancelled'))
 
-await promise
+try {
+  await promise
+} catch (error) {
+  if (error instanceof AbortRequestError) {
+    console.error('Request cancelled', error.cause)
+  }
+}
 ```
 
 ### Hooks
@@ -282,6 +291,18 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - `body` and `json` cannot be used together.
 - The package performs no telemetry or hidden network activity beyond the caller's request.
 
+## Advanced behavior notes
+
+- Timeout windows are per attempt when retries are enabled. A configured `timeout` is not a total deadline across all retry attempts.
+- External abort signals surface as `AbortRequestError`, including when the signal was aborted with a custom reason.
+- External abort beats timeout if it happens first; timeout beats external abort if the timeout fires first.
+- Timeout aborts surface as `TimeoutError`.
+- External abort reasons are preserved as `AbortRequestError.cause` when the platform exposes them.
+- Retry backoff waits are abortable.
+- Timeout windows start after `beforeRequest` hooks complete.
+- If `beforeRequest` replaces `context.url`, that replacement is final. Previously resolved `baseURL` and query parameters are not reapplied to the replacement URL.
+- Retry attempt metadata is not currently exposed to hooks. Hooks can inspect normalized retry configuration, but not the current attempt number.
+
 ## Important limitations by design
 
 - The package stays close to native `fetch` rather than inventing a separate transport model.
@@ -308,9 +329,9 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 ## Release and CI
 
 - CI lints GitHub Actions workflows before merge.
-- CI runs lint, test, and build checks on supported Node.js versions.
+- CI runs lint, test, and build checks on selected supported Node.js versions.
 - CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `20`.
-- Dependency review is configured for pull requests and manual validation, but requires the relevant GitHub security features to be enabled on the repository.
+- Dependency review is enforced for pull requests and supports manual base/head validation.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
 - npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.

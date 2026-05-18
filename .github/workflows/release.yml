@@ -36,12 +36,9 @@ jobs:
           npm run lint
           npm test
           npm run build
-
-      - name: Verify packed artifact
-        run: npm pack
-
-      - name: Verify npm publish dry-run
-        run: npm publish --dry-run
+          npm run check:package-metadata
+          npm run check:pack-smoke
+          npm publish --dry-run
 
   publish:
     if: github.event_name == 'push'
@@ -68,6 +65,9 @@ jobs:
           npm run lint
           npm test
           npm run build
+          npm run check:package-metadata
+          npm run check:pack-smoke
+          npm publish --dry-run
 
       - name: Publish to npm with provenance
         run: npm publish

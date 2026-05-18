@@ -181,6 +181,158 @@ test('external abort surfaces AbortRequestError', async () => {
   }
 })
 
+test('external abort with custom reason surfaces AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  const reason = new Error('caller stopped request')
+
+  globalThis.fetch = async (input) =>
+    new Promise((_resolve, reject) => {
+      const request = input as Request
+      if (request.signal.aborted) {
+        reject(request.signal.reason)
+        return
+      }
+      request.signal.addEventListener(
+        'abort',
+        () => reject(request.signal.reason),
+        { once: true },
+      )
+    })
+
+  try {
+    const controller = new AbortController()
+    const promise = request('https://api.example.com/users', {
+      signal: controller.signal,
+    })
+
+    controller.abort(reason)
+
+    await assert.rejects(
+      () => promise,
+      (error) =>
+        error instanceof AbortRequestError && error.cause === reason,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external abort with custom object reason surfaces AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  const reason = { code: 'USER_NAVIGATED' }
+
+  globalThis.fetch = async (input) =>
+    new Promise((_resolve, reject) => {
+      const request = input as Request
+      if (request.signal.aborted) {
+        reject(request.signal.reason)
+        return
+      }
+      request.signal.addEventListener(
+        'abort',
+        () => reject(request.signal.reason),
+        { once: true },
+      )
+    })
+
+  try {
+    const controller = new AbortController()
+    const promise = request('https://api.example.com/users', {
+      signal: controller.signal,
+    })
+
+    controller.abort(reason)
+
+    await assert.rejects(
+      () => promise,
+      (error) =>
+        error instanceof AbortRequestError && error.cause === reason,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external abort during response body parsing preserves custom cause', async () => {
+  const originalFetch = globalThis.fetch
+  const reason = { code: 'USER_NAVIGATED' }
+
+  globalThis.fetch = async (input) => {
+    const request = input as Request
+
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          request.signal.addEventListener(
+            'abort',
+            () => {
+              controller.error(new DOMException('Read aborted', 'AbortError'))
+            },
+            { once: true },
+          )
+        },
+      }),
+    )
+  }
+
+  try {
+    const controller = new AbortController()
+    const promise = request('https://api.example.com/users', {
+      responseType: 'text',
+      signal: controller.signal,
+    })
+
+    setTimeout(() => {
+      controller.abort(reason)
+    }, 1)
+
+    await assert.rejects(
+      () => promise,
+      (error) =>
+        error instanceof AbortRequestError && error.cause === reason,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external abort wins over later timeout classification', async () => {
+  const originalFetch = globalThis.fetch
+  const reason = new Error('caller stopped before timeout')
+
+  globalThis.fetch = async (input) =>
+    new Promise((_resolve, reject) => {
+      const request = input as Request
+      request.signal.addEventListener(
+        'abort',
+        () => {
+          setTimeout(() => reject(request.signal.reason), 30)
+        },
+        { once: true },
+      )
+    })
+
+  try {
+    const controller = new AbortController()
+    const promise = request('https://api.example.com/users', {
+      signal: controller.signal,
+      timeout: 10,
+    })
+
+    setTimeout(() => {
+      controller.abort(reason)
+    }, 1)
+
+    await assert.rejects(
+      () => promise,
+      (error) =>
+        error instanceof AbortRequestError && error.cause === reason,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('retries use configured methods and statuses with bounded backoff', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0
@@ -622,6 +774,47 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
 
     assert.equal(attempts, 1)
     assert.ok(Date.now() - startedAt < 250)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('custom abort reason during retry backoff surfaces AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  const reason = new Error('caller stopped retrying')
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    throw new TypeError('fetch failed')
+  }
+
+  try {
+    const controller = new AbortController()
+
+    const promise = request('https://api.example.com/users', {
+      signal: controller.signal,
+      retry: {
+        attempts: 3,
+        backoffMs: 500,
+        maxBackoffMs: 500,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    setTimeout(() => {
+      controller.abort(reason)
+    }, 25)
+
+    await assert.rejects(
+      () => promise,
+      (error) =>
+        error instanceof AbortRequestError && error.cause === reason,
+    )
+
+    assert.equal(attempts, 1)
   } finally {
     globalThis.fetch = originalFetch
   }

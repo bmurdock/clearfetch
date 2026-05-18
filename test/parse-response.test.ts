@@ -83,6 +83,18 @@ test('normalizeExecutionError maps aborts to AbortRequestError without timeout',
   assert.ok(error instanceof AbortRequestError)
 })
 
+test('normalizeExecutionError preserves explicit abort reason as cause', () => {
+  const reason = { code: 'USER_NAVIGATED' }
+  const error = normalizeExecutionError({
+    aborted: true,
+    abortReason: reason,
+    error: new DOMException('Aborted', 'AbortError'),
+  })
+
+  assert.ok(error instanceof AbortRequestError)
+  assert.equal(error.cause, reason)
+})
+
 test('normalizeExecutionError maps unknown failures to NetworkError', () => {
   const error = normalizeExecutionError({
     error: new TypeError('fetch failed'),
