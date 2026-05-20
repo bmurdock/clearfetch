@@ -78,7 +78,7 @@ async function parseJsonResponse<T>(
 async function readBodyTextSafely(response: Response): Promise<string | undefined> {
   try {
     const bodyText = await readBodyTextWithLimit(
-      response.clone(),
+      response,
       MAX_ERROR_BODY_TEXT_CHARS,
     )
     return bodyText === '' ? undefined : bodyText
@@ -101,32 +101,35 @@ async function readBodyTextWithLimit(
   let bodyText = ''
   let truncated = false
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) {
-      break
-    }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        break
+      }
 
-    const remainingChars = maxChars - bodyText.length
-    const chunk =
-      value.byteLength > remainingChars + 1
-        ? value.subarray(0, remainingChars + 1)
-        : value
+      const remainingChars = maxChars - bodyText.length
+      const chunk =
+        value.byteLength > remainingChars + 1
+          ? value.subarray(0, remainingChars + 1)
+          : value
 
-    bodyText += decoder.decode(chunk, { stream: true })
-    if (value.byteLength > chunk.byteLength || bodyText.length > maxChars) {
-      truncated = true
-      bodyText = bodyText.slice(0, maxChars)
-      void reader.cancel().catch(() => undefined)
-      break
+      bodyText += decoder.decode(chunk, { stream: true })
+      if (
+        value.byteLength > chunk.byteLength ||
+        bodyText.length >= maxChars
+      ) {
+        truncated = true
+        bodyText = bodyText.slice(0, maxChars)
+        void reader.cancel().catch(() => undefined)
+        break
+      }
     }
+  } finally {
+    reader.releaseLock()
   }
 
   bodyText += decoder.decode()
-  if (bodyText.length > maxChars) {
-    truncated = true
-    bodyText = bodyText.slice(0, maxChars)
-  }
 
   return truncated
     ? `${bodyText}${TRUNCATED_BODY_SUFFIX}`

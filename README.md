@@ -279,6 +279,7 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 
 - Non-2xx responses throw `HttpError`.
 - `HttpError.bodyText` capture is bounded and may be truncated for very large payloads.
+- `HttpError.response` remains available for status, headers, and metadata, but its body may already be consumed or canceled by diagnostic `bodyText` capture.
 - JSON mode returns `undefined` for empty response bodies.
 - In JSON mode, successful empty bodies resolve as `T | undefined`.
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.

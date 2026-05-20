@@ -547,6 +547,8 @@ This is a deliberate divergence from native fetch behavior and a major part of t
 
 `HttpError` may include `bodyText` for diagnostics, but capture should be bounded so large payloads do not cause avoidable memory pressure.
 
+Diagnostic body capture may consume or cancel the `HttpError.response` body. Consumers that need to inspect a non-2xx response body should use `bodyText` or an `afterResponse` hook instead of assuming the retained `Response` body remains readable.
+
 ---
 
 ## Error model
