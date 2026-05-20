@@ -107,15 +107,17 @@ async function readBodyTextWithLimit(
       break
     }
 
-    bodyText += decoder.decode(value, { stream: true })
-    if (bodyText.length > maxChars) {
+    const remainingChars = maxChars - bodyText.length
+    const chunk =
+      value.byteLength > remainingChars + 1
+        ? value.subarray(0, remainingChars + 1)
+        : value
+
+    bodyText += decoder.decode(chunk, { stream: true })
+    if (value.byteLength > chunk.byteLength || bodyText.length > maxChars) {
       truncated = true
       bodyText = bodyText.slice(0, maxChars)
-      try {
-        void reader.cancel()
-      } catch {
-        // Ignore cancellation errors; we already have enough context.
-      }
+      void reader.cancel().catch(() => undefined)
       break
     }
   }

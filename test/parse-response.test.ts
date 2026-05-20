@@ -87,6 +87,63 @@ test('parseResponse truncates large HttpError body text', async () => {
   )
 })
 
+test('parseResponse caps decoded HttpError body chunks before retaining text', async () => {
+  const originalTextDecoder = globalThis.TextDecoder
+  let maxDecodedBytes = 0
+
+  const TestTextDecoder = class {
+    decode(input?: ArrayBuffer | ArrayBufferView | null): string {
+      const byteLength = input === undefined || input === null
+        ? 0
+        : input.byteLength
+      maxDecodedBytes = Math.max(maxDecodedBytes, byteLength)
+
+      return 'x'.repeat(byteLength)
+    }
+  } as unknown as typeof TextDecoder
+
+  Object.defineProperty(globalThis, 'TextDecoder', {
+    configurable: true,
+    value: TestTextDecoder,
+    writable: true,
+  })
+
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(20_000))
+      },
+    }),
+    {
+      status: 500,
+      statusText: 'Internal Server Error',
+    },
+  )
+
+  try {
+    await assert.rejects(
+      () =>
+        parseResponse({
+          response,
+          responseType: 'text',
+          parseJson: JSON.parse,
+        }),
+      (error) =>
+        error instanceof HttpError &&
+        typeof error.bodyText === 'string' &&
+        error.bodyText.endsWith('...[truncated]'),
+    )
+
+    assert.ok(maxDecodedBytes < 20_000)
+  } finally {
+    Object.defineProperty(globalThis, 'TextDecoder', {
+      configurable: true,
+      value: originalTextDecoder,
+      writable: true,
+    })
+  }
+})
+
 test('normalizeExecutionError maps aborts to TimeoutError when timeout is present', () => {
   const error = normalizeExecutionError({
     error: new DOMException('Aborted', 'AbortError'),

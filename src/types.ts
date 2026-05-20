@@ -129,7 +129,11 @@ export interface AfterResponseContext {
 }
 
 /**
- * Context passed to `onError` hooks after the failure has been normalized.
+ * Context passed to `onError` hooks.
+ *
+ * Transport, HTTP, timeout, abort, and parse failures are normalized before
+ * this hook runs. Hook failures and request-construction failures are exposed
+ * as thrown so they are not hidden behind misleading wrapper errors.
  */
 export interface ErrorContext {
   input: string | URL

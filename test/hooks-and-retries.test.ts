@@ -152,8 +152,10 @@ test('timeout starts after beforeRequest hooks complete', async () => {
   const originalFetch = globalThis.fetch
   let fetchCalls = 0
 
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (input) => {
     fetchCalls += 1
+    const req = input as Request
+    assert.equal(req.signal.aborted, false)
     return new Response(JSON.stringify({ ok: true }))
   }
 
@@ -954,6 +956,44 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
       assert.ok(seenErrors[0] instanceof Error)
       assert.equal((seenErrors[0] as Error).message, 'afterResponse failure')
       assert.deepEqual(seenStatuses, [200])
+    },
+  )
+})
+
+test('onError observes request construction failures as thrown', async () => {
+  const observedErrors: unknown[] = []
+
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              context.url = '/relative' as unknown as URL
+            },
+          ],
+          onError: [
+            async (context) => {
+              observedErrors.push(context.error)
+            },
+          ],
+        },
+      })
+
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof ConfigError &&
+          error.message === 'beforeRequest URL overrides must be absolute URLs',
+      )
+
+      assert.equal(observedErrors.length, 1)
+      assert.ok(observedErrors[0] instanceof ConfigError)
+      assert.equal(
+        (observedErrors[0] as Error).message,
+        'beforeRequest URL overrides must be absolute URLs',
+      )
     },
   )
 })
