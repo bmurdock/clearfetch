@@ -112,6 +112,7 @@ test('parseResponse caps decoded HttpError body chunks before retaining text', a
     new ReadableStream({
       start(controller) {
         controller.enqueue(new Uint8Array(20_000))
+        controller.close()
       },
     }),
     {
