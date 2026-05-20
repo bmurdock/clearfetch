@@ -1,6 +1,9 @@
 import { HttpError, ParseError } from '../errors.js'
 import type { ResponseType } from '../types.js'
 
+const MAX_ERROR_BODY_TEXT_CHARS = 16_384
+const TRUNCATED_BODY_SUFFIX = '...[truncated]'
+
 export async function parseResponse<T = unknown>(params: {
   response: Response
   responseType: ResponseType
@@ -74,9 +77,64 @@ async function parseJsonResponse<T>(
 
 async function readBodyTextSafely(response: Response): Promise<string | undefined> {
   try {
-    const bodyText = await response.clone().text()
+    const bodyText = await readBodyTextWithLimit(
+      response.clone(),
+      MAX_ERROR_BODY_TEXT_CHARS,
+    )
     return bodyText === '' ? undefined : bodyText
   } catch {
     return undefined
   }
+}
+
+async function readBodyTextWithLimit(
+  response: Response,
+  maxChars: number,
+): Promise<string> {
+  const body = response.body
+  if (body === null || typeof TextDecoder === 'undefined') {
+    return truncateBodyText(await response.text(), maxChars)
+  }
+
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let bodyText = ''
+  let truncated = false
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+
+    bodyText += decoder.decode(value, { stream: true })
+    if (bodyText.length > maxChars) {
+      truncated = true
+      bodyText = bodyText.slice(0, maxChars)
+      try {
+        void reader.cancel()
+      } catch {
+        // Ignore cancellation errors; we already have enough context.
+      }
+      break
+    }
+  }
+
+  bodyText += decoder.decode()
+  if (bodyText.length > maxChars) {
+    truncated = true
+    bodyText = bodyText.slice(0, maxChars)
+  }
+
+  return truncated
+    ? `${bodyText}${TRUNCATED_BODY_SUFFIX}`
+    : bodyText
+}
+
+function truncateBodyText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text
+  }
+
+  return `${text.slice(0, maxChars)}${TRUNCATED_BODY_SUFFIX}`
 }

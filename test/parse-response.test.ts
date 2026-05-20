@@ -66,6 +66,27 @@ test('parseResponse throws HttpError for non-2xx responses', async () => {
   )
 })
 
+test('parseResponse truncates large HttpError body text', async () => {
+  const response = new Response('x'.repeat(20_000), {
+    status: 500,
+    statusText: 'Internal Server Error',
+  })
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'text',
+        parseJson: JSON.parse,
+      }),
+    (error) =>
+      error instanceof HttpError &&
+      typeof error.bodyText === 'string' &&
+      error.bodyText.length < 20_000 &&
+      error.bodyText.endsWith('...[truncated]'),
+  )
+})
+
 test('normalizeExecutionError maps aborts to TimeoutError when timeout is present', () => {
   const error = normalizeExecutionError({
     error: new DOMException('Aborted', 'AbortError'),

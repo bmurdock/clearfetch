@@ -277,6 +277,7 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 ## Behavior notes
 
 - Non-2xx responses throw `HttpError`.
+- `HttpError.bodyText` capture is bounded and may be truncated for very large payloads.
 - JSON mode returns `undefined` for empty response bodies.
 - In JSON mode, successful empty bodies resolve as `T | undefined`.
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
@@ -300,6 +301,7 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - External abort reasons are preserved as `AbortRequestError.cause` when the platform exposes them.
 - Retry backoff waits are abortable.
 - Timeout windows start after `beforeRequest` hooks complete.
+- Retry backoff waits do not consume per-attempt timeout windows.
 - If `beforeRequest` replaces `context.url`, that replacement is final. Previously resolved `baseURL` and query parameters are not reapplied to the replacement URL.
 - Retry attempt metadata is not currently exposed to hooks. Hooks can inspect normalized retry configuration, but not the current attempt number.
 

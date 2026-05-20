@@ -545,6 +545,8 @@ Non-2xx responses must throw an `HttpError` before response parsing is returned 
 
 This is a deliberate divergence from native fetch behavior and a major part of the package’s value proposition.
 
+`HttpError` may include `bodyText` for diagnostics, but capture should be bounded so large payloads do not cause avoidable memory pressure.
+
 ---
 
 ## Error model
@@ -814,6 +816,7 @@ This means:
 - each retry attempt gets its own timeout window
 - the timeout does not represent a single total deadline across all attempts
 - the timeout window starts after that attempt's `beforeRequest` hooks complete
+- retry backoff delays occur between attempts and do not consume an attempt timeout window
 
 This is simpler to implement and reason about. If a future version introduces total deadline support, it must do so explicitly.
 
