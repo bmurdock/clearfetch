@@ -80,6 +80,32 @@ test('normalizeRequestOptions rejects body plus json', () => {
   )
 })
 
+test('normalizeRequestOptions rejects request bodies for GET and HEAD', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        method: 'GET',
+        body: 'payload',
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`GET` requests cannot include a request body',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        method: 'HEAD',
+        json: {
+          ping: true,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`HEAD` requests cannot include a request body',
+  )
+})
+
 test('normalizeRequestOptions rejects unsupported responseType values', () => {
   assert.throws(
     () =>

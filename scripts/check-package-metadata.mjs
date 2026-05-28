@@ -15,10 +15,33 @@ await assertPublishedEntrypointsExist(rootDir, packageJson)
 console.log('package metadata checks passed')
 
 function assertNoRuntimeDependencies(packageConfig) {
-  const dependencies = packageConfig.dependencies
-  if (dependencies !== undefined && Object.keys(dependencies).length > 0) {
-    throw new Error('runtime dependencies must remain empty')
+  const dependencyFields = [
+    'dependencies',
+    'optionalDependencies',
+    'peerDependencies',
+    'bundleDependencies',
+    'bundledDependencies',
+  ]
+
+  for (const fieldName of dependencyFields) {
+    if (!hasEntries(packageConfig[fieldName])) {
+      continue
+    }
+
+    throw new Error(`runtime dependency field \`${fieldName}\` must remain empty`)
   }
+}
+
+function hasEntries(value) {
+  if (Array.isArray(value)) {
+    return value.length > 0
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return Object.keys(value).length > 0
+  }
+
+  return false
 }
 
 function assertNoLifecycleScripts(packageConfig) {

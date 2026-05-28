@@ -148,6 +148,42 @@ test('request timeout surfaces TimeoutError', async () => {
   }
 })
 
+test('timeout starts after beforeRequest hooks complete', async () => {
+  const originalFetch = globalThis.fetch
+  let fetchCalls = 0
+
+  globalThis.fetch = async (input) => {
+    fetchCalls += 1
+    const req = input as Request
+    assert.equal(req.signal.aborted, false)
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const startedAt = Date.now()
+
+    const result = await request<{ ok: boolean }>(
+      'https://api.example.com/users',
+      {
+        timeout: 10,
+        hooks: {
+          beforeRequest: [
+            async () => {
+              await new Promise((resolve) => setTimeout(resolve, 25))
+            },
+          ],
+        },
+      },
+    )
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(fetchCalls, 1)
+    assert.ok(Date.now() - startedAt >= 25)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('external abort surfaces AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input) =>
@@ -364,6 +400,38 @@ test('retries use configured methods and statuses with bounded backoff', async (
 
     assert.deepEqual(result, { ok: true })
     assert.equal(attempts, 3)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry backoff does not consume per-attempt timeout windows', async () => {
+  const originalFetch = globalThis.fetch
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    if (attempts === 1) {
+      throw new TypeError('fetch failed')
+    }
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      timeout: 5,
+      retry: {
+        attempts: 2,
+        backoffMs: 25,
+        maxBackoffMs: 25,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(attempts, 2)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -821,6 +889,8 @@ test('custom abort reason during retry backoff surfaces AbortRequestError', asyn
 })
 
 test('hook failures propagate instead of being swallowed', async () => {
+  const observedErrors: unknown[] = []
+
   await withMockedFetch(
     async () => new Response(JSON.stringify({ ok: true })),
     async () => {
@@ -831,6 +901,11 @@ test('hook failures propagate instead of being swallowed', async () => {
               throw new Error('hook failure')
             },
           ],
+          onError: [
+            async (context) => {
+              observedErrors.push(context.error)
+            },
+          ],
         },
       })
 
@@ -838,11 +913,18 @@ test('hook failures propagate instead of being swallowed', async () => {
         () => client.get('https://api.example.com/users'),
         (error) => error instanceof Error && error.message === 'hook failure',
       )
+
+      assert.equal(observedErrors.length, 1)
+      assert.ok(observedErrors[0] instanceof Error)
+      assert.equal((observedErrors[0] as Error).message, 'hook failure')
     },
   )
 })
 
 test('afterResponse hook failures propagate without NetworkError wrapping', async () => {
+  const seenStatuses: number[] = []
+  const seenErrors: unknown[] = []
+
   await withMockedFetch(
     async () => new Response(JSON.stringify({ ok: true })),
     async () => {
@@ -851,6 +933,12 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
           afterResponse: [
             async () => {
               throw new Error('afterResponse failure')
+            },
+          ],
+          onError: [
+            async (context) => {
+              seenErrors.push(context.error)
+              seenStatuses.push(context.response?.status ?? -1)
             },
           ],
         },
@@ -862,6 +950,49 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
           error instanceof Error &&
           !(error instanceof NetworkError) &&
           error.message === 'afterResponse failure',
+      )
+
+      assert.equal(seenErrors.length, 1)
+      assert.ok(seenErrors[0] instanceof Error)
+      assert.equal((seenErrors[0] as Error).message, 'afterResponse failure')
+      assert.deepEqual(seenStatuses, [200])
+    },
+  )
+})
+
+test('onError observes request construction failures as thrown', async () => {
+  const observedErrors: unknown[] = []
+
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              context.url = '/relative' as unknown as URL
+            },
+          ],
+          onError: [
+            async (context) => {
+              observedErrors.push(context.error)
+            },
+          ],
+        },
+      })
+
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof ConfigError &&
+          error.message === 'beforeRequest URL overrides must be absolute URLs',
+      )
+
+      assert.equal(observedErrors.length, 1)
+      assert.ok(observedErrors[0] instanceof ConfigError)
+      assert.equal(
+        (observedErrors[0] as Error).message,
+        'beforeRequest URL overrides must be absolute URLs',
       )
     },
   )

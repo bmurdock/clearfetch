@@ -293,8 +293,8 @@ The request lifecycle is defined as follows:
 11. Classify non-success HTTP responses
 12. Parse the response according to `responseType`
 13. Return parsed result or raw `Response`
-14. On failure, normalize the error and execute `onError` hooks
-15. Re-throw the normalized error
+14. On failure, execute `onError` hooks with the classified failure context
+15. Re-throw the classified failure
 
 This order is intentional and should remain stable unless there is a strong reason to change it.
 
@@ -545,6 +545,10 @@ Non-2xx responses must throw an `HttpError` before response parsing is returned 
 
 This is a deliberate divergence from native fetch behavior and a major part of the package’s value proposition.
 
+`HttpError` may include `bodyText` for diagnostics, but capture should be bounded so large payloads do not cause avoidable memory pressure.
+
+Diagnostic body capture may consume or cancel the `HttpError.response` body. Consumers that need to inspect a non-2xx response body should use `bodyText` or an `afterResponse` hook instead of assuming the retained `Response` body remains readable.
+
 ---
 
 ## Error model
@@ -708,9 +712,11 @@ Permitted uses:
 
 #### `onError`
 
-Runs after an error has been normalized but before it is re-thrown to the caller.
+Runs after a failure has been classified but before it is re-thrown to the caller.
 
-`onError` receives normalized failures only after classification has occurred.
+For transport, timeout, external abort, HTTP, and parse failures, `onError` receives the normalized package error after classification has occurred.
+
+For hook failures and request-construction failures, `onError` receives the error as thrown. This preserves the package's explicit-failure posture without wrapping consumer hook bugs or configuration failures as misleading network-layer errors.
 
 Permitted uses:
 
@@ -814,6 +820,7 @@ This means:
 - each retry attempt gets its own timeout window
 - the timeout does not represent a single total deadline across all attempts
 - the timeout window starts after that attempt's `beforeRequest` hooks complete
+- retry backoff delays occur between attempts and do not consume an attempt timeout window
 
 This is simpler to implement and reason about. If a future version introduces total deadline support, it must do so explicitly.
 
@@ -1012,7 +1019,8 @@ The following invariants are part of the design contract.
 * client hooks run before request hooks
 * hooks run in definition order
 * hook failures are not swallowed
-* `onError` runs after normalization and before re-throw
+* `onError` runs after failure classification and before re-throw
+* hook and request-construction failures are surfaced as thrown
 
 ### Retry invariants
 

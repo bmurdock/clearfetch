@@ -59,7 +59,16 @@ export async function executeRequest<T = unknown>(
         : createBeforeRequestContext(input, defaults, options)
 
     try {
-      await runBeforeRequestHooks(context)
+      try {
+        await runBeforeRequestHooks(context)
+      } catch (error) {
+        await runOnErrorHooks({
+          input,
+          error,
+          options: context.options,
+        }, context._internalOptions.hooks.onError)
+        throw error
+      }
 
       const timeout = createTimeoutController(
         context._internalOptions.signal,
@@ -67,7 +76,18 @@ export async function executeRequest<T = unknown>(
       )
 
       try {
-        const request = buildRequestFromContext(context, timeout.signal)
+        let request: Request
+        try {
+          request = buildRequestFromContext(context, timeout.signal)
+        } catch (error) {
+          await runOnErrorHooks({
+            input,
+            error,
+            options: context.options,
+          }, context._internalOptions.hooks.onError)
+          throw error
+        }
+
         const response = await fetchWithHandling({
           attempt,
           context,
@@ -79,12 +99,23 @@ export async function executeRequest<T = unknown>(
 
         const afterResponseHooks = context._internalOptions.hooks.afterResponse
         if (afterResponseHooks.length > 0) {
-          await runAfterResponseHooks({
-            input,
-            request,
-            response: response.clone(),
-            options: context.options,
-          }, afterResponseHooks)
+          try {
+            await runAfterResponseHooks({
+              input,
+              request,
+              response: response.clone(),
+              options: context.options,
+            }, afterResponseHooks)
+          } catch (error) {
+            await runOnErrorHooks({
+              input,
+              error,
+              options: context.options,
+              request,
+              response,
+            }, context._internalOptions.hooks.onError)
+            throw error
+          }
         }
 
         return await parseWithHandling<T>({
@@ -182,28 +213,24 @@ class RetrySignal {
 async function waitForRetry(params: {
   attempt: number
   context: ExecutionBeforeRequestContext
-  request: Request
-  timeout: ReturnType<typeof createTimeoutController>
 }): Promise<void> {
-  const { attempt, context, request, timeout } = params
+  const { attempt, context } = params
+  const externalSignal = context._internalOptions.signal
 
   try {
     await sleep(
       getRetryDelay(context._internalOptions.retry, attempt),
-      request.signal,
+      externalSignal,
     )
   } catch (delayError) {
     throw normalizeExecutionError(
-      context._internalOptions.timeout !== undefined && timeout.didTimeout()
+      externalSignal === undefined
         ? {
-            aborted: isSignalAbortReason(request.signal, delayError),
-            abortReason: request.signal.reason,
             error: delayError,
-            timeout: context._internalOptions.timeout,
           }
         : {
-            aborted: isSignalAbortReason(request.signal, delayError),
-            abortReason: request.signal.reason,
+            aborted: isRequestAbort(externalSignal, delayError),
+            abortReason: externalSignal.reason,
             error: delayError,
           },
     )
@@ -277,7 +304,7 @@ async function fetchWithHandling(params: {
         attempt,
       )
     ) {
-      await waitForRetry({ attempt, context, request, timeout })
+      await waitForRetry({ attempt, context })
       throw new RetrySignal(normalized)
     }
 
@@ -319,7 +346,7 @@ async function parseWithHandling<T>(params: {
       attempt,
     )
   ) {
-    await waitForRetry({ attempt, context, request, timeout })
+    await waitForRetry({ attempt, context })
 
     throw new RetrySignal(new HttpError({
       status: response.status,
@@ -360,7 +387,7 @@ async function parseWithHandling<T>(params: {
         attempt,
       )
     ) {
-      await waitForRetry({ attempt, context, request, timeout })
+      await waitForRetry({ attempt, context })
       throw new RetrySignal(normalized)
     }
 

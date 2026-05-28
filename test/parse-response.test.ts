@@ -66,6 +66,185 @@ test('parseResponse throws HttpError for non-2xx responses', async () => {
   )
 })
 
+test('parseResponse truncates large HttpError body text', async () => {
+  const response = new Response('x'.repeat(20_000), {
+    status: 500,
+    statusText: 'Internal Server Error',
+  })
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'text',
+        parseJson: JSON.parse,
+      }),
+    (error) =>
+      error instanceof HttpError &&
+      typeof error.bodyText === 'string' &&
+      error.bodyText.length < 20_000 &&
+      error.bodyText.endsWith('...[truncated]'),
+  )
+})
+
+test('parseResponse caps decoded HttpError body chunks before retaining text', async () => {
+  const originalTextDecoder = globalThis.TextDecoder
+  let maxDecodedBytes = 0
+
+  const TestTextDecoder = class {
+    decode(input?: ArrayBuffer | ArrayBufferView | null): string {
+      const byteLength = input === undefined || input === null
+        ? 0
+        : input.byteLength
+      maxDecodedBytes = Math.max(maxDecodedBytes, byteLength)
+
+      return 'x'.repeat(byteLength)
+    }
+  } as unknown as typeof TextDecoder
+
+  Object.defineProperty(globalThis, 'TextDecoder', {
+    configurable: true,
+    value: TestTextDecoder,
+    writable: true,
+  })
+
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(20_000))
+        controller.close()
+      },
+    }),
+    {
+      status: 500,
+      statusText: 'Internal Server Error',
+    },
+  )
+
+  try {
+    await assert.rejects(
+      () =>
+        parseResponse({
+          response,
+          responseType: 'text',
+          parseJson: JSON.parse,
+        }),
+      (error) =>
+        error instanceof HttpError &&
+        typeof error.bodyText === 'string' &&
+        error.bodyText.endsWith('...[truncated]'),
+    )
+
+    assert.ok(maxDecodedBytes < 20_000)
+  } finally {
+    Object.defineProperty(globalThis, 'TextDecoder', {
+      configurable: true,
+      value: originalTextDecoder,
+      writable: true,
+    })
+  }
+})
+
+test('parseResponse cancels original error body after truncating diagnostics', async () => {
+  let cancelCalls = 0
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(20_000))
+      },
+      cancel() {
+        cancelCalls += 1
+      },
+    }),
+    {
+      status: 500,
+      statusText: 'Internal Server Error',
+    },
+  )
+
+  let thrown: unknown
+  try {
+    await parseResponse({
+      response,
+      responseType: 'text',
+      parseJson: JSON.parse,
+    })
+  } catch (error) {
+    thrown = error
+  }
+
+  assert.ok(thrown instanceof HttpError)
+  assert.ok(thrown.bodyText?.endsWith('...[truncated]'))
+  assert.equal(thrown.response.bodyUsed, true)
+
+  const reader = thrown.response.body?.getReader()
+  assert.ok(reader !== undefined)
+
+  try {
+    const result = await reader.read()
+    assert.equal(result.done, true)
+  } finally {
+    reader.releaseLock()
+  }
+
+  assert.equal(cancelCalls, 1)
+})
+
+test('parseResponse truncates and cancels an error body that stalls at the diagnostic cap', async () => {
+  let cancelCalls = 0
+  let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+  const response = new Response(
+    new ReadableStream({
+      start(streamController) {
+        controller = streamController
+        streamController.enqueue(new Uint8Array(16_384))
+      },
+      cancel() {
+        cancelCalls += 1
+      },
+    }),
+    {
+      status: 500,
+      statusText: 'Internal Server Error',
+    },
+  )
+
+  const parsePromise = parseResponse({
+    response,
+    responseType: 'text',
+    parseJson: JSON.parse,
+  })
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller?.close()
+      reject(
+        new Error(
+          'parseResponse did not settle after reaching the diagnostic cap',
+        ),
+      )
+    }, 500)
+  })
+
+  try {
+    await assert.rejects(
+      () => Promise.race([parsePromise, timeoutPromise]),
+      (error) =>
+        error instanceof HttpError &&
+        typeof error.bodyText === 'string' &&
+        error.bodyText.endsWith('...[truncated]'),
+    )
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId)
+    }
+    await parsePromise.catch(() => undefined)
+  }
+
+  assert.equal(cancelCalls, 1)
+})
+
 test('normalizeExecutionError maps aborts to TimeoutError when timeout is present', () => {
   const error = normalizeExecutionError({
     error: new DOMException('Aborted', 'AbortError'),
