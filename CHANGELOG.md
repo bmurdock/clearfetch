@@ -9,10 +9,10 @@ Highlights:
 - route hook and request-construction failures through `onError` before re-throwing them as-is
 - clarify that retry backoff waits do not consume per-attempt timeout windows
 - bound `HttpError.bodyText` capture for large error payloads
-- avoid decoding oversized streamed error-body chunks before truncation
+- avoid decoding oversized streamed error-body chunks before truncation and cancel truncated error streams
 - expand package metadata checks across runtime dependency fields
 - extend packed-artifact smoke coverage for public errors and blocked internal subpaths
-- document the refined hook, timeout, retry, and error-body behavior
+- document the refined hook, timeout, retry, and `HttpError.response` body behavior
 
 ## 1.0.3
 
