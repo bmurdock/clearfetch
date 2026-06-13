@@ -40,6 +40,38 @@ const clientJsonPromise: Promise<{ ok: boolean } | undefined> = client.get<{
 }>('https://api.example.com/users')
 void clientJsonPromise
 
+request('https://api.example.com/create', {
+  method: 'POST',
+  json: { ok: true },
+})
+
+client.post('https://api.example.com/create', {
+  json: { ok: true },
+})
+
+// @ts-expect-error body and json are mutually exclusive
+request('https://api.example.com/create', {
+  method: 'POST',
+  body: 'raw',
+  json: { ok: true },
+})
+
+// @ts-expect-error one-off JSON bodies require a body-capable method
+request('https://api.example.com/create', {
+  json: { ok: true },
+})
+
+// @ts-expect-error GET requests cannot include JSON request bodies
+request('https://api.example.com/users', {
+  method: 'GET',
+  json: { invalid: true },
+})
+
+client.get('https://api.example.com/users', {
+  // @ts-expect-error GET helper options cannot include request bodies
+  body: 'invalid',
+})
+
 const typedTextPromise = request('https://api.example.com/text', {
   responseType: 'text',
 })

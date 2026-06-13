@@ -930,10 +930,11 @@ Where possible, incompatible option combinations should be discouraged or preven
 Examples:
 
 * discourage simultaneous `body` and `json`
+* reject body shapes on `GET` and `HEAD`
 * constrain response-type values
 * strongly type hook contexts and retry configuration
 
-Runtime validation still remains necessary.
+Runtime validation still remains necessary, especially for JavaScript callers and intentionally invalid test inputs. Invalid body combinations should be guarded both by public TypeScript types and runtime validation.
 
 ---
 

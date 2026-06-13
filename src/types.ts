@@ -48,12 +48,11 @@ export interface RetryOptions {
 /**
  * Per-request configuration for `request()` and client method calls.
  */
-export interface RequestOptions {
-  method?: RequestMethod
+export type BodyCapableRequestMethod = Exclude<RequestMethod, 'GET' | 'HEAD'>
+
+export interface RequestOptionsBase {
   headers?: HeadersInit
   query?: QueryParams
-  body?: BodyInit | null
-  json?: unknown
   timeout?: number
   signal?: AbortSignal
   responseType?: ResponseType
@@ -61,6 +60,41 @@ export interface RequestOptions {
   hooks?: Hooks
   parseJson?: (text: string) => unknown
 }
+
+export type BodylessRequestOptions = RequestOptionsBase & {
+  method?: 'GET' | 'HEAD'
+  body?: never
+  json?: never
+}
+
+export type BodyCapableRequestWithoutBody = RequestOptionsBase & {
+  method?: BodyCapableRequestMethod
+  body?: never
+  json?: never
+}
+
+export type RawBodyRequestOptions = RequestOptionsBase & {
+  method: BodyCapableRequestMethod
+  body: BodyInit | null
+  json?: never
+}
+
+export type JsonBodyRequestOptions = RequestOptionsBase & {
+  method: BodyCapableRequestMethod
+  body?: never
+  json: unknown
+}
+
+export type RequestOptions =
+  | BodylessRequestOptions
+  | BodyCapableRequestWithoutBody
+  | RawBodyRequestOptions
+  | JsonBodyRequestOptions
+
+export type ClientMethodOptions =
+  | (RequestOptionsBase & { body?: never; json?: never })
+  | (RequestOptionsBase & { body: BodyInit | null; json?: never })
+  | (RequestOptionsBase & { body?: never; json: unknown })
 
 /**
  * Shared defaults captured by a client created with `createClient()`.
@@ -214,177 +248,177 @@ export interface HttpClient {
 
   get<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonBodylessClientMethodOptions,
   ): Promise<T | undefined>
 
   get(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextBodylessClientMethodOptions,
   ): Promise<string>
 
   get(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobBodylessClientMethodOptions,
   ): Promise<Blob>
 
   get(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferBodylessClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   get(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawBodylessClientMethodOptions,
   ): Promise<Response>
 
   post<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   post(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextClientMethodOptions,
   ): Promise<string>
 
   post(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobClientMethodOptions,
   ): Promise<Blob>
 
   post(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   post(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawClientMethodOptions,
   ): Promise<Response>
 
   put<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   put(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextClientMethodOptions,
   ): Promise<string>
 
   put(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobClientMethodOptions,
   ): Promise<Blob>
 
   put(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   put(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawClientMethodOptions,
   ): Promise<Response>
 
   patch<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   patch(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextClientMethodOptions,
   ): Promise<string>
 
   patch(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobClientMethodOptions,
   ): Promise<Blob>
 
   patch(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   patch(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawClientMethodOptions,
   ): Promise<Response>
 
   delete<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   delete(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextClientMethodOptions,
   ): Promise<string>
 
   delete(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobClientMethodOptions,
   ): Promise<Blob>
 
   delete(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   delete(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawClientMethodOptions,
   ): Promise<Response>
 
   head<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonBodylessClientMethodOptions,
   ): Promise<T | undefined>
 
   head(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextBodylessClientMethodOptions,
   ): Promise<string>
 
   head(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobBodylessClientMethodOptions,
   ): Promise<Blob>
 
   head(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferBodylessClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   head(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawBodylessClientMethodOptions,
   ): Promise<Response>
 
   options<T = unknown>(
     input: string | URL,
-    options?: Omit<JsonRequestOptions, 'method'>,
+    options?: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   options(
     input: string | URL,
-    options: Omit<TextRequestOptions, 'method'>,
+    options: TextClientMethodOptions,
   ): Promise<string>
 
   options(
     input: string | URL,
-    options: Omit<BlobRequestOptions, 'method'>,
+    options: BlobClientMethodOptions,
   ): Promise<Blob>
 
   options(
     input: string | URL,
-    options: Omit<ArrayBufferRequestOptions, 'method'>,
+    options: ArrayBufferClientMethodOptions,
   ): Promise<ArrayBuffer>
 
   options(
     input: string | URL,
-    options: Omit<RawRequestOptions, 'method'>,
+    options: RawClientMethodOptions,
   ): Promise<Response>
 
   extend(defaults: ClientDefaults): HttpClient
@@ -394,7 +428,28 @@ type JsonRequestOptions = RequestOptions & {
   responseType?: 'json'
 }
 
+type JsonClientMethodOptions = ClientMethodOptions & {
+  responseType?: 'json'
+}
+
+type BodylessClientMethodOptions = RequestOptionsBase & {
+  body?: never
+  json?: never
+}
+
+type JsonBodylessClientMethodOptions = BodylessClientMethodOptions & {
+  responseType?: 'json'
+}
+
 type TextRequestOptions = RequestOptions & {
+  responseType: 'text'
+}
+
+type TextClientMethodOptions = ClientMethodOptions & {
+  responseType: 'text'
+}
+
+type TextBodylessClientMethodOptions = BodylessClientMethodOptions & {
   responseType: 'text'
 }
 
@@ -402,10 +457,34 @@ type BlobRequestOptions = RequestOptions & {
   responseType: 'blob'
 }
 
+type BlobClientMethodOptions = ClientMethodOptions & {
+  responseType: 'blob'
+}
+
+type BlobBodylessClientMethodOptions = BodylessClientMethodOptions & {
+  responseType: 'blob'
+}
+
 type ArrayBufferRequestOptions = RequestOptions & {
   responseType: 'arrayBuffer'
 }
 
+type ArrayBufferClientMethodOptions = ClientMethodOptions & {
+  responseType: 'arrayBuffer'
+}
+
+type ArrayBufferBodylessClientMethodOptions = BodylessClientMethodOptions & {
+  responseType: 'arrayBuffer'
+}
+
 type RawRequestOptions = RequestOptions & {
+  responseType: 'raw'
+}
+
+type RawClientMethodOptions = ClientMethodOptions & {
+  responseType: 'raw'
+}
+
+type RawBodylessClientMethodOptions = BodylessClientMethodOptions & {
   responseType: 'raw'
 }

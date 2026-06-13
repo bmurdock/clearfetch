@@ -292,6 +292,7 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - Retry support does not allow streaming request bodies.
 - The `json` helper serializes request bodies and sets `Content-Type: application/json` when absent.
 - `body` and `json` cannot be used together.
+- TypeScript rejects common invalid option combinations such as `body` plus `json`, and request bodies on `GET`/`HEAD` request shapes. Runtime validation still protects JavaScript callers.
 - The package performs no telemetry or hidden network activity beyond the caller's request.
 
 ## Advanced behavior notes

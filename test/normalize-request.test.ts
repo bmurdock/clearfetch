@@ -9,6 +9,7 @@ import {
   resolveRequestURL,
   serializeQueryParams,
 } from '../src/internal/normalize-request.js'
+import type { RequestOptions } from '../src/types.js'
 
 test('serializeQueryParams repeats array keys and skips undefined', () => {
   const query = serializeQueryParams({
@@ -73,7 +74,7 @@ test('normalizeRequestOptions rejects body plus json', () => {
         json: {
           hello: 'world',
         },
-      }),
+      } as RequestOptions),
     (error) =>
       error instanceof ConfigError &&
       error.message === '`body` and `json` cannot both be provided',
@@ -86,7 +87,7 @@ test('normalizeRequestOptions rejects request bodies for GET and HEAD', () => {
       normalizeRequestOptions({}, {
         method: 'GET',
         body: 'payload',
-      }),
+      } as RequestOptions),
     (error) =>
       error instanceof ConfigError &&
       error.message === '`GET` requests cannot include a request body',
@@ -99,7 +100,7 @@ test('normalizeRequestOptions rejects request bodies for GET and HEAD', () => {
         json: {
           ping: true,
         },
-      }),
+      } as RequestOptions),
     (error) =>
       error instanceof ConfigError &&
       error.message === '`HEAD` requests cannot include a request body',

@@ -173,7 +173,11 @@ function createMethodCaller(
   return <T = unknown>(
     input: string | URL,
     options: RequestOptions = {},
-  ) => executeRequest<T>(input, defaults, { ...options, method })
+  ) => executeRequest<T>(
+    input,
+    defaults,
+    { ...options, method } as RequestOptions,
+  )
 }
 
 async function runBeforeRequestHooks(
