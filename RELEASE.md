@@ -11,9 +11,19 @@ Expected flow:
 3. Optionally run the `Release` workflow manually to exercise the non-publishing dry-run path.
 4. Create an annotated release tag in the form `vX.Y.Z`.
 5. Push the tag to GitHub.
-6. Let the `Release` GitHub Actions workflow publish the package.
+6. Let the `Release` GitHub Actions workflow publish the package and create or verify the matching GitHub Release record.
+7. Confirm npm and GitHub Releases show the same current version.
 
 Local `npm publish` should not be used for normal releases.
+
+The tag must match the package version exactly, for example package version `1.2.3` must be released from tag `v1.2.3`. If a workflow rerun finds that exact package version already published on npm and the published `gitHead` matches the checked-out tag commit, it skips publishing and still creates or verifies the GitHub Release record.
+
+Post-release verification:
+
+```bash
+npm view @gavoryn/clearfetch version --registry=https://registry.npmjs.org
+gh release list --limit 5 --json tagName,name,isDraft,isPrerelease,isLatest,createdAt,publishedAt
+```
 
 ## Release dry-run
 

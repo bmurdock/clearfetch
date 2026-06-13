@@ -45,6 +45,9 @@ jobs:
     needs: verify-release
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -70,4 +73,48 @@ jobs:
           npm publish --dry-run
 
       - name: Publish to npm with provenance
-        run: npm publish
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          if [ "$TAG_NAME" != "v$PACKAGE_VERSION" ]; then
+            echo "Release tag $TAG_NAME does not match package version v$PACKAGE_VERSION" >&2
+            exit 1
+          fi
+
+          PUBLISHED_VERSION="$(npm view "@gavoryn/clearfetch@$PACKAGE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
+
+          if [ "$PUBLISHED_VERSION" = "$PACKAGE_VERSION" ]; then
+            PUBLISHED_GIT_HEAD="$(npm view "@gavoryn/clearfetch@$PACKAGE_VERSION" gitHead --registry=https://registry.npmjs.org 2>/dev/null || true)"
+            CURRENT_GIT_HEAD="$(git rev-parse HEAD)"
+
+            if [ "$PUBLISHED_GIT_HEAD" != "$CURRENT_GIT_HEAD" ]; then
+              echo "Published gitHead $PUBLISHED_GIT_HEAD does not match current tag commit $CURRENT_GIT_HEAD" >&2
+              exit 1
+            fi
+
+            echo "Version $PACKAGE_VERSION is already published; skipping npm publish."
+          else
+            npm publish
+          fi
+
+      - name: Create or verify GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if release_json="$(gh release view "$TAG_NAME" --json tagName,name,isDraft,isPrerelease,isLatest,url 2>/dev/null)"; then
+            RELEASE_JSON="$release_json" node <<'NODE'
+          const release = JSON.parse(process.env.RELEASE_JSON)
+
+          if (release.isDraft || release.isPrerelease) {
+            console.error(`Release ${release.tagName} must be a published, non-prerelease GitHub Release`)
+            process.exit(1)
+          }
+
+          console.log(JSON.stringify(release, null, 2))
+          NODE
+          else
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes --verify-tag
+          fi

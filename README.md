@@ -339,6 +339,7 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 - Dependency review is enforced for pull requests and supports manual base/head validation.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
 - npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
+- The release workflow publishes to npm with provenance and creates or verifies the matching GitHub Release record.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
 

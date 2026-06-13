@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- have the release workflow create or verify GitHub Release records after npm publish
 - expose retry attempt and serialized query metadata to hooks through `context.options`
 
 ## 1.0.4
