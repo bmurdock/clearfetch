@@ -37,12 +37,19 @@ export function createBeforeRequestContext(
   input: string | URL,
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
+  attempt = 1,
 ): ExecutionBeforeRequestContext {
   const url = resolveRequestURL(input, defaults.baseURL, options.query)
   const normalized = normalizeRequestOptions(defaults, options)
   const body = resolveRequestBody(normalized)
   validateRetryableBody(body, normalized.retry)
-  const optionsView = createHookRequestOptions(normalized)
+  const maxAttempts = normalized.retry === false ? 1 : normalized.retry.attempts
+  const queryString = serializeQueryParams(normalized.query)
+  const optionsView = createHookRequestOptions(normalized, {
+    attempt,
+    maxAttempts,
+    ...(queryString === '' ? {} : { queryString }),
+  })
 
   const context: ExecutionBeforeRequestContext = {
     input,

@@ -305,7 +305,8 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - Timeout windows start after `beforeRequest` hooks complete.
 - Retry backoff waits do not consume per-attempt timeout windows.
 - If `beforeRequest` replaces `context.url`, that replacement is final. Previously resolved `baseURL` and query parameters are not reapplied to the replacement URL.
-- Retry attempt metadata is not currently exposed to hooks. Hooks can inspect normalized retry configuration, but not the current attempt number.
+- Hook metadata includes `context.options.attempt` and `context.options.maxAttempts`. Non-retried requests report attempt `1` and max attempts `1`.
+- When `query` serializes to a non-empty string, hook metadata includes `context.options.queryString` without a leading `?`. Existing search parameters from the input URL remain visible on `context.url`.
 
 ## Important limitations by design
 

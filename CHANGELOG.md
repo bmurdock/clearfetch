@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- expose retry attempt and serialized query metadata to hooks through `context.options`
+
 ## 1.0.4
 
 Failure-observability, retry-timeout, diagnostic, and package-guardrail hardening.

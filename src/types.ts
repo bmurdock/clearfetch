@@ -94,7 +94,10 @@ export interface HookRetryOptions {
  */
 export interface HookRequestOptions {
   readonly method: RequestMethod
+  readonly attempt: number
+  readonly maxAttempts: number
   readonly query?: QueryParams
+  readonly queryString?: string
   readonly timeout?: number
   readonly signal?: AbortSignal
   readonly responseType: ResponseType

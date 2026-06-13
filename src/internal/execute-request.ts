@@ -56,7 +56,7 @@ export async function executeRequest<T = unknown>(
     const context =
       attempt === 1
         ? initialContext
-        : createBeforeRequestContext(input, defaults, options)
+        : createBeforeRequestContext(input, defaults, options, attempt)
 
     try {
       try {

@@ -515,6 +515,91 @@ test('retry attempts rebuild hook context after the first attempt', async () => 
   }
 })
 
+test('beforeRequest hooks can inspect retry attempt metadata', async () => {
+  const originalFetch = globalThis.fetch
+  const attempts: Array<{ attempt: number; maxAttempts: number }> = []
+  let calls = 0
+
+  globalThis.fetch = async () => {
+    calls += 1
+
+    if (calls === 1) {
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/retry', {
+      retry: {
+        attempts: 2,
+        backoffMs: 0,
+        maxBackoffMs: 0,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+      hooks: {
+        beforeRequest: [
+          (context) => {
+            attempts.push({
+              attempt: context.options.attempt,
+              maxAttempts: context.options.maxAttempts,
+            })
+          },
+        ],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(attempts, [
+      { attempt: 1, maxAttempts: 2 },
+      { attempt: 2, maxAttempts: 2 },
+    ])
+    assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('beforeRequest hooks can inspect serialized query metadata', async () => {
+  const originalFetch = globalThis.fetch
+  let queryString: string | undefined
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }))
+
+  try {
+    const result = await request<{ ok: boolean }>(
+      'https://api.example.com/users?active=true',
+      {
+        query: {
+          tag: ['a', 'b'],
+          page: 1,
+        },
+        hooks: {
+          beforeRequest: [
+            (context) => {
+              queryString = context.options.queryString
+              assert.equal(
+                context.url.href,
+                'https://api.example.com/users?active=true&tag=a&tag=b&page=1',
+              )
+            },
+          ],
+        },
+      },
+    )
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(queryString, 'tag=a&tag=b&page=1')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('retry attempts rebuild POST json bodies after the first attempt', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0

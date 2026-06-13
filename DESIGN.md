@@ -758,6 +758,7 @@ In particular:
 - hooks may not mutate normalized execution options directly
 - `afterResponse` and `onError` are observational-only apart from throwing
 - hook metadata exposed through `context.options` is read-only and must not act as a hidden mutation surface
+- hook metadata includes current attempt counts for application-owned logging and metrics
 
 If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute URL. Relative replacement URLs are invalid and must fail with `ConfigError`.
 
@@ -827,6 +828,8 @@ This is simpler to implement and reason about. If a future version introduces to
 ### Retry observability
 
 Retry behavior should be visible to hook contexts where practical so consuming applications can log and understand repeated attempts.
+
+Hooks expose the current attempt through `context.options.attempt` and the configured attempt ceiling through `context.options.maxAttempts`. When the request `query` option serializes to a non-empty string, hooks also receive `context.options.queryString` without a leading `?`; URL search parameters already present in the input remain visible through `context.url`. Applications own any logging, metrics, or tracing behavior built from that metadata.
 
 ### Retry classification
 
