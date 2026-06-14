@@ -4,6 +4,11 @@ import test from 'node:test'
 import { createHookRequestOptions } from '../src/internal/hook-options.js'
 import type { NormalizedRequestOptions } from '../src/types.js'
 
+const DEFAULT_METADATA = {
+  attempt: 1,
+  maxAttempts: 1,
+}
+
 function createOptions(
   overrides: Partial<NormalizedRequestOptions> = {},
 ): NormalizedRequestOptions {
@@ -23,7 +28,7 @@ function createOptions(
 }
 
 test('createHookRequestOptions freezes the top-level options object', () => {
-  const snapshot = createHookRequestOptions(createOptions())
+  const snapshot = createHookRequestOptions(createOptions(), DEFAULT_METADATA)
 
   assert.equal(Object.isFrozen(snapshot), true)
 })
@@ -38,7 +43,10 @@ test('createHookRequestOptions freezes retry metadata and retry arrays when retr
     retryOnMethods: ['GET'],
   }
 
-  const snapshot = createHookRequestOptions(createOptions({ retry }))
+  const snapshot = createHookRequestOptions(
+    createOptions({ retry }),
+    DEFAULT_METADATA,
+  )
 
   assert.notEqual(snapshot.retry, retry)
   if (snapshot.retry === false) {
@@ -54,6 +62,53 @@ test('createHookRequestOptions freezes retry metadata and retry arrays when retr
   assert.deepEqual(snapshot.retry.retryOnMethods, ['GET'])
 })
 
+test('createHookRequestOptions exposes retry attempt metadata', () => {
+  const snapshot = createHookRequestOptions(
+    createOptions({
+      retry: {
+        attempts: 3,
+        backoffMs: 10,
+        maxBackoffMs: 100,
+        multiplier: 2,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    }),
+    {
+      attempt: 2,
+      maxAttempts: 3,
+    },
+  )
+
+  assert.equal(snapshot.attempt, 2)
+  assert.equal(snapshot.maxAttempts, 3)
+})
+
+test('createHookRequestOptions exposes serialized query metadata', () => {
+  const snapshot = createHookRequestOptions(createOptions(), {
+    attempt: 1,
+    maxAttempts: 1,
+    queryString: 'tag=a&tag=b&page=1',
+  })
+
+  assert.equal(snapshot.queryString, 'tag=a&tag=b&page=1')
+})
+
+test('createHookRequestOptions exposes serialized URLSearchParams query metadata', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  const snapshot = createHookRequestOptions(
+    createOptions({ query }),
+    {
+      attempt: 1,
+      maxAttempts: 1,
+      queryString: 'tag=a&page=1&tag=b',
+    },
+  )
+
+  assert.equal(Object.hasOwn(snapshot, 'query'), false)
+  assert.equal(snapshot.queryString, 'tag=a&page=1&tag=b')
+})
+
 test('createHookRequestOptions freezes query metadata and query arrays when query is present', () => {
   const query = {
     page: 2,
@@ -61,7 +116,10 @@ test('createHookRequestOptions freezes query metadata and query arrays when quer
     nullable: null,
   }
 
-  const snapshot = createHookRequestOptions(createOptions({ query }))
+  const snapshot = createHookRequestOptions(
+    createOptions({ query }),
+    DEFAULT_METADATA,
+  )
 
   assert.notEqual(snapshot.query, query)
   assert.equal(Object.isFrozen(snapshot.query), true)
@@ -71,15 +129,19 @@ test('createHookRequestOptions freezes query metadata and query arrays when quer
 })
 
 test('createHookRequestOptions omits optional metadata keys when absent', () => {
-  const snapshot = createHookRequestOptions(createOptions())
+  const snapshot = createHookRequestOptions(createOptions(), DEFAULT_METADATA)
 
   assert.equal(Object.hasOwn(snapshot, 'query'), false)
+  assert.equal(Object.hasOwn(snapshot, 'queryString'), false)
   assert.equal(Object.hasOwn(snapshot, 'timeout'), false)
   assert.equal(Object.hasOwn(snapshot, 'signal'), false)
 })
 
 test('createHookRequestOptions sets retry to exactly false when retries are disabled', () => {
-  const snapshot = createHookRequestOptions(createOptions({ retry: false }))
+  const snapshot = createHookRequestOptions(
+    createOptions({ retry: false }),
+    DEFAULT_METADATA,
+  )
 
   assert.equal(snapshot.retry, false)
 })

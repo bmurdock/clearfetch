@@ -9,6 +9,7 @@ import {
   resolveRequestURL,
   serializeQueryParams,
 } from '../src/internal/normalize-request.js'
+import type { RequestOptions } from '../src/types.js'
 
 test('serializeQueryParams repeats array keys and skips undefined', () => {
   const query = serializeQueryParams({
@@ -19,6 +20,29 @@ test('serializeQueryParams repeats array keys and skips undefined', () => {
   })
 
   assert.equal(query, 'page=1&tags=a&tags=b&nullable=null')
+})
+
+test('serializeQueryParams preserves URLSearchParams ordering and duplicate keys', () => {
+  const query = new URLSearchParams()
+  query.append('tag', 'a')
+  query.append('page', '1')
+  query.append('tag', 'b')
+
+  assert.equal(serializeQueryParams(query), 'tag=a&page=1&tag=b')
+})
+
+test('resolveRequestURL appends URLSearchParams query input', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  const url = resolveRequestURL(
+    '/users?active=true',
+    'https://api.example.com',
+    query,
+  )
+
+  assert.equal(
+    url.href,
+    'https://api.example.com/users?active=true&tag=a&page=1&tag=b',
+  )
 })
 
 test('resolveRequestURL requires baseURL for relative inputs', () => {
@@ -73,7 +97,7 @@ test('normalizeRequestOptions rejects body plus json', () => {
         json: {
           hello: 'world',
         },
-      }),
+      } as RequestOptions),
     (error) =>
       error instanceof ConfigError &&
       error.message === '`body` and `json` cannot both be provided',
@@ -86,7 +110,7 @@ test('normalizeRequestOptions rejects request bodies for GET and HEAD', () => {
       normalizeRequestOptions({}, {
         method: 'GET',
         body: 'payload',
-      }),
+      } as RequestOptions),
     (error) =>
       error instanceof ConfigError &&
       error.message === '`GET` requests cannot include a request body',
@@ -99,7 +123,7 @@ test('normalizeRequestOptions rejects request bodies for GET and HEAD', () => {
         json: {
           ping: true,
         },
-      }),
+      } as RequestOptions),
     (error) =>
       error instanceof ConfigError &&
       error.message === '`HEAD` requests cannot include a request body',

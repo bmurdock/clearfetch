@@ -1,4 +1,5 @@
 export { createClient } from './client.js'
+export { redactHeaders } from './diagnostics.js'
 export { request } from './request.js'
 
 export {
@@ -27,8 +28,10 @@ export type {
   NormalizedRequestOptions,
   OnErrorHook,
   PrimitiveQueryValue,
+  QueryInput,
   QueryParams,
   QueryValue,
+  RedactHeadersOptions,
   RequestOptions,
   RequestMethod,
   ResponseType,

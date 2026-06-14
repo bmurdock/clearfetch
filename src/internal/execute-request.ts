@@ -56,7 +56,7 @@ export async function executeRequest<T = unknown>(
     const context =
       attempt === 1
         ? initialContext
-        : createBeforeRequestContext(input, defaults, options)
+        : createBeforeRequestContext(input, defaults, options, attempt)
 
     try {
       try {
@@ -173,7 +173,11 @@ function createMethodCaller(
   return <T = unknown>(
     input: string | URL,
     options: RequestOptions = {},
-  ) => executeRequest<T>(input, defaults, { ...options, method })
+  ) => executeRequest<T>(
+    input,
+    defaults,
+    { ...options, method } as RequestOptions,
+  )
 }
 
 async function runBeforeRequestHooks(

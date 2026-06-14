@@ -57,6 +57,29 @@ const api = createClient({
 const user = await api.get<{ id: string; name: string }>('/users/123')
 ```
 
+### Query parameters
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const users = await api.get('/users', {
+  query: {
+    active: true,
+    tag: ['admin', 'editor'],
+  },
+})
+
+const ordered = await api.get('/users', {
+  query: new URLSearchParams('tag=admin&page=1&tag=editor'),
+})
+```
+
+Use an object for ordinary query parameters. Use native `URLSearchParams` when duplicate-key ordering matters.
+
 ### JSON request bodies
 
 ```ts
@@ -204,6 +227,29 @@ Hook scope is intentionally narrow:
 
 Cloned `afterResponse` inspection is intended for ordinary API payloads, not large streaming or heavy binary workflows.
 
+#### Safe diagnostic header logging
+
+clearfetch has no built-in logging or telemetry. Applications that log request
+diagnostics can use `redactHeaders()` to copy headers and replace common
+sensitive values before writing application-owned diagnostics.
+By default, it redacts exact case-insensitive matches for `authorization`,
+`cookie`, `set-cookie`, `proxy-authorization`, `x-api-key`, and `api-key`.
+
+```ts
+import { createClient, redactHeaders } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  hooks: {
+    beforeRequest: [
+      (context) => {
+        const safeHeaders = redactHeaders(context.headers)
+        console.log(Object.fromEntries(safeHeaders))
+      },
+    ],
+  },
+})
+```
+
 ### Error handling
 
 ```ts
@@ -292,6 +338,7 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - Retry support does not allow streaming request bodies.
 - The `json` helper serializes request bodies and sets `Content-Type: application/json` when absent.
 - `body` and `json` cannot be used together.
+- TypeScript rejects common invalid option combinations such as `body` plus `json`, and request bodies on `GET`/`HEAD` request shapes. Runtime validation still protects JavaScript callers.
 - The package performs no telemetry or hidden network activity beyond the caller's request.
 
 ## Advanced behavior notes
@@ -305,7 +352,8 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 - Timeout windows start after `beforeRequest` hooks complete.
 - Retry backoff waits do not consume per-attempt timeout windows.
 - If `beforeRequest` replaces `context.url`, that replacement is final. Previously resolved `baseURL` and query parameters are not reapplied to the replacement URL.
-- Retry attempt metadata is not currently exposed to hooks. Hooks can inspect normalized retry configuration, but not the current attempt number.
+- Hook metadata includes `context.options.attempt` and `context.options.maxAttempts`. Non-retried requests report attempt `1` and max attempts `1`.
+- When `query` serializes to a non-empty string, hook metadata includes `context.options.queryString` without a leading `?`. Existing search parameters from the input URL remain visible on `context.url`.
 
 ## Important limitations by design
 
@@ -338,6 +386,7 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 - Dependency review is enforced for pull requests and supports manual base/head validation.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
 - npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
+- The release workflow publishes to npm with provenance and creates or verifies the matching GitHub Release record.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
 

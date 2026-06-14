@@ -431,18 +431,16 @@ Query serialization should be conservative and easy to understand.
 
 Supported values:
 
-- string
-- number
-- boolean
-- null
-- arrays of the above
-- `undefined` as “omit the key”
+- object-record query inputs with string, number, boolean, null, arrays of those values, and `undefined` as “omit the key”
+- native `URLSearchParams`
 
 Unsupported structures, such as deeply nested objects, are intentionally out of scope for v1.
 
+`URLSearchParams` is accepted because it is a native web platform primitive. It preserves duplicate-key ordering for callers that need that behavior without requiring the package to invent custom complex-object serialization rules.
+
 ### Serialization rules
 
-Default rules:
+Default object-record rules:
 
 - `undefined` values are omitted
 - scalar values produce a single key-value pair
@@ -455,6 +453,8 @@ Recommended default for arrays:
 - `tags: ['a', 'b']` becomes `tags=a&tags=b`
 
 This is widely understood and avoids introducing custom query conventions by default.
+
+For `URLSearchParams`, the package uses the platform serializer directly.
 
 ### Non-goal: deep object flattening
 
@@ -758,6 +758,7 @@ In particular:
 - hooks may not mutate normalized execution options directly
 - `afterResponse` and `onError` are observational-only apart from throwing
 - hook metadata exposed through `context.options` is read-only and must not act as a hidden mutation surface
+- hook metadata includes current attempt counts for application-owned logging and metrics
 
 If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute URL. Relative replacement URLs are invalid and must fail with `ConfigError`.
 
@@ -828,6 +829,8 @@ This is simpler to implement and reason about. If a future version introduces to
 
 Retry behavior should be visible to hook contexts where practical so consuming applications can log and understand repeated attempts.
 
+Hooks expose the current attempt through `context.options.attempt` and the configured attempt ceiling through `context.options.maxAttempts`. When the request `query` option serializes to a non-empty string, hooks also receive `context.options.queryString` without a leading `?`; URL search parameters already present in the input remain visible through `context.url`. Applications own any logging, metrics, or tracing behavior built from that metadata.
+
 ### Retry classification
 
 Version 1 retry decisions are based only on:
@@ -856,16 +859,16 @@ The package’s runtime security posture is grounded in the following choices:
 
 ### Sensitive data handling
 
-The package must avoid logging or exposing sensitive headers automatically.
+The package must avoid logging or exposing sensitive headers automatically. The core package itself should avoid built-in logging.
 
-If helper utilities exist for diagnostics, they should support redaction of commonly sensitive header names such as:
+Applications that own diagnostics may use the public `redactHeaders()` helper to copy headers and redact exactly matched sensitive header names. By default, the helper redacts:
 
-- `Authorization`
-- `Cookie`
-- `Set-Cookie`
-- API-key style headers
-
-The core package itself should avoid built-in logging.
+- `authorization`
+- `cookie`
+- `set-cookie`
+- `proxy-authorization`
+- `x-api-key`
+- `api-key`
 
 ### Redirect behavior
 
@@ -927,10 +930,11 @@ Where possible, incompatible option combinations should be discouraged or preven
 Examples:
 
 * discourage simultaneous `body` and `json`
+* reject body shapes on `GET` and `HEAD`
 * constrain response-type values
 * strongly type hook contexts and retry configuration
 
-Runtime validation still remains necessary.
+Runtime validation still remains necessary, especially for JavaScript callers and intentionally invalid test inputs. Invalid body combinations should be guarded both by public TypeScript types and runtime validation.
 
 ---
 

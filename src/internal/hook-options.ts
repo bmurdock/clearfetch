@@ -7,12 +7,15 @@ import type {
 
 export function createHookRequestOptions(
   options: NormalizedRequestOptions,
+  metadata: HookLifecycleMetadata,
 ): HookRequestOptions {
   // Hooks get a read-only metadata view rather than the internal mutable
   // execution object. This keeps hook inspection useful without turning
   // `context.options` into a hidden mutation surface.
   const snapshot: HookRequestOptions = {
     method: options.method,
+    attempt: metadata.attempt,
+    maxAttempts: metadata.maxAttempts,
     responseType: options.responseType,
     retry:
       options.retry === false
@@ -25,7 +28,16 @@ export function createHookRequestOptions(
     parseJson: options.parseJson,
   }
 
-  if (options.query !== undefined) {
+  if (metadata.queryString !== undefined) {
+    Object.defineProperty(snapshot, 'queryString', {
+      configurable: false,
+      enumerable: true,
+      value: metadata.queryString,
+      writable: false,
+    })
+  }
+
+  if (options.query !== undefined && !isURLSearchParams(options.query)) {
     Object.defineProperty(snapshot, 'query', {
       configurable: false,
       enumerable: true,
@@ -53,6 +65,16 @@ export function createHookRequestOptions(
   }
 
   return Object.freeze(snapshot)
+}
+
+export interface HookLifecycleMetadata {
+  attempt: number
+  maxAttempts: number
+  queryString?: string
+}
+
+function isURLSearchParams(value: unknown): value is URLSearchParams {
+  return value instanceof URLSearchParams
 }
 
 function freezeQueryParams(query: QueryParams): QueryParams {
