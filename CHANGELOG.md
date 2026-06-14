@@ -1,5 +1,8 @@
 # Changelog
 
+Entries describe repository versions. A version is publicly released only after
+the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
+
 ## 1.0.5
 
 - add `redactHeaders()` for safe application-owned diagnostics without built-in logging
