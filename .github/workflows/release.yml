@@ -104,7 +104,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          if release_json="$(gh release view "$TAG_NAME" --json tagName,name,isDraft,isPrerelease,isLatest,url 2>/dev/null)"; then
+          if release_json="$(gh release view "$TAG_NAME" --json tagName,name,isDraft,isPrerelease,url 2>/dev/null)"; then
             RELEASE_JSON="$release_json" node <<'NODE'
           const release = JSON.parse(process.env.RELEASE_JSON)
 
