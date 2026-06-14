@@ -49,6 +49,14 @@ client.post('https://api.example.com/create', {
   json: { ok: true },
 })
 
+request('https://api.example.com/users', {
+  query: new URLSearchParams('tag=a&tag=b'),
+})
+
+client.get('https://api.example.com/users', {
+  query: new URLSearchParams('tag=a&tag=b'),
+})
+
 // @ts-expect-error body and json are mutually exclusive
 request('https://api.example.com/create', {
   method: 'POST',

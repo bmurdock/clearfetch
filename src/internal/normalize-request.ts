@@ -5,6 +5,7 @@ import type {
   Hooks,
   NormalizedRequestOptions,
   PrimitiveQueryValue,
+  QueryInput,
   QueryParams,
   RequestMethod,
   RequestOptions,
@@ -144,7 +145,9 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
-    validateQueryParams(options.query)
+    if (!isURLSearchParams(options.query)) {
+      validateQueryParams(options.query)
+    }
     normalized.query = options.query
   }
 
@@ -170,7 +173,7 @@ export function normalizeRequestOptions(
 export function resolveRequestURL(
   input: string | URL,
   baseURL?: string | URL,
-  query?: QueryParams,
+  query?: QueryInput,
 ): URL {
   const base = baseURL === undefined ? undefined : toAbsoluteURL(baseURL, 'Invalid base URL')
   const url = input instanceof URL ? new URL(input) : resolveInputURL(input, base)
@@ -179,9 +182,13 @@ export function resolveRequestURL(
   return url
 }
 
-export function serializeQueryParams(query?: QueryParams): string {
+export function serializeQueryParams(query?: QueryInput): string {
   if (query === undefined) {
     return ''
+  }
+
+  if (isURLSearchParams(query)) {
+    return query.toString()
   }
 
   const params = new URLSearchParams()
@@ -204,7 +211,7 @@ export function serializeQueryParams(query?: QueryParams): string {
   return params.toString()
 }
 
-function applyQueryParams(url: URL, query?: QueryParams): void {
+function applyQueryParams(url: URL, query?: QueryInput): void {
   const serialized = serializeQueryParams(query)
 
   if (serialized === '') {
@@ -213,6 +220,10 @@ function applyQueryParams(url: URL, query?: QueryParams): void {
 
   const suffix = url.search === '' ? serialized : `&${serialized}`
   url.search += suffix
+}
+
+function isURLSearchParams(value: unknown): value is URLSearchParams {
+  return value instanceof URLSearchParams
 }
 
 function mergeHeaders(

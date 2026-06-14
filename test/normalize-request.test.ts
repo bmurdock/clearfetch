@@ -22,6 +22,29 @@ test('serializeQueryParams repeats array keys and skips undefined', () => {
   assert.equal(query, 'page=1&tags=a&tags=b&nullable=null')
 })
 
+test('serializeQueryParams preserves URLSearchParams ordering and duplicate keys', () => {
+  const query = new URLSearchParams()
+  query.append('tag', 'a')
+  query.append('page', '1')
+  query.append('tag', 'b')
+
+  assert.equal(serializeQueryParams(query), 'tag=a&page=1&tag=b')
+})
+
+test('resolveRequestURL appends URLSearchParams query input', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  const url = resolveRequestURL(
+    '/users?active=true',
+    'https://api.example.com',
+    query,
+  )
+
+  assert.equal(
+    url.href,
+    'https://api.example.com/users?active=true&tag=a&page=1&tag=b',
+  )
+})
+
 test('resolveRequestURL requires baseURL for relative inputs', () => {
   assert.throws(
     () => resolveRequestURL('/users'),

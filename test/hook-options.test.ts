@@ -94,6 +94,21 @@ test('createHookRequestOptions exposes serialized query metadata', () => {
   assert.equal(snapshot.queryString, 'tag=a&tag=b&page=1')
 })
 
+test('createHookRequestOptions exposes serialized URLSearchParams query metadata', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  const snapshot = createHookRequestOptions(
+    createOptions({ query }),
+    {
+      attempt: 1,
+      maxAttempts: 1,
+      queryString: 'tag=a&page=1&tag=b',
+    },
+  )
+
+  assert.equal(Object.hasOwn(snapshot, 'query'), false)
+  assert.equal(snapshot.queryString, 'tag=a&page=1&tag=b')
+})
+
 test('createHookRequestOptions freezes query metadata and query arrays when query is present', () => {
   const query = {
     page: 2,

@@ -57,6 +57,29 @@ const api = createClient({
 const user = await api.get<{ id: string; name: string }>('/users/123')
 ```
 
+### Query parameters
+
+```ts
+import { createClient } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  baseURL: 'https://api.example.com',
+})
+
+const users = await api.get('/users', {
+  query: {
+    active: true,
+    tag: ['admin', 'editor'],
+  },
+})
+
+const ordered = await api.get('/users', {
+  query: new URLSearchParams('tag=admin&page=1&tag=editor'),
+})
+```
+
+Use an object for ordinary query parameters. Use native `URLSearchParams` when duplicate-key ordering matters.
+
 ### JSON request bodies
 
 ```ts

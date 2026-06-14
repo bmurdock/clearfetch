@@ -4,6 +4,7 @@
 
 - have the release workflow create or verify GitHub Release records after npm publish
 - expose retry attempt and serialized query metadata to hooks through `context.options`
+- allow native `URLSearchParams` as `query` input while preserving duplicate-key ordering
 - tighten public TypeScript request option shapes for body/json and GET/HEAD misuse
 
 ## 1.0.4

@@ -431,18 +431,16 @@ Query serialization should be conservative and easy to understand.
 
 Supported values:
 
-- string
-- number
-- boolean
-- null
-- arrays of the above
-- `undefined` as “omit the key”
+- object-record query inputs with string, number, boolean, null, arrays of those values, and `undefined` as “omit the key”
+- native `URLSearchParams`
 
 Unsupported structures, such as deeply nested objects, are intentionally out of scope for v1.
 
+`URLSearchParams` is accepted because it is a native web platform primitive. It preserves duplicate-key ordering for callers that need that behavior without requiring the package to invent custom complex-object serialization rules.
+
 ### Serialization rules
 
-Default rules:
+Default object-record rules:
 
 - `undefined` values are omitted
 - scalar values produce a single key-value pair
@@ -455,6 +453,8 @@ Recommended default for arrays:
 - `tags: ['a', 'b']` becomes `tags=a&tags=b`
 
 This is widely understood and avoids introducing custom query conventions by default.
+
+For `URLSearchParams`, the package uses the platform serializer directly.
 
 ### Non-goal: deep object flattening
 

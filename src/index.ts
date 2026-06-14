@@ -27,6 +27,7 @@ export type {
   NormalizedRequestOptions,
   OnErrorHook,
   PrimitiveQueryValue,
+  QueryInput,
   QueryParams,
   QueryValue,
   RequestOptions,

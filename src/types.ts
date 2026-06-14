@@ -31,6 +31,8 @@ export type QueryValue =
 
 export type QueryParams = Record<string, QueryValue>
 
+export type QueryInput = QueryParams | URLSearchParams
+
 /**
  * Conservative retry configuration.
  *
@@ -52,7 +54,7 @@ export type BodyCapableRequestMethod = Exclude<RequestMethod, 'GET' | 'HEAD'>
 
 export interface RequestOptionsBase {
   headers?: HeadersInit
-  query?: QueryParams
+  query?: QueryInput
   timeout?: number
   signal?: AbortSignal
   responseType?: ResponseType
@@ -206,7 +208,7 @@ export interface Hooks {
 export interface NormalizedRequestOptions {
   method: RequestMethod
   headers: Headers
-  query?: QueryParams
+  query?: QueryInput
   body?: BodyInit | null
   json?: unknown
   timeout?: number

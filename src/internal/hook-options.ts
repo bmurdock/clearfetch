@@ -37,7 +37,7 @@ export function createHookRequestOptions(
     })
   }
 
-  if (options.query !== undefined) {
+  if (options.query !== undefined && !isURLSearchParams(options.query)) {
     Object.defineProperty(snapshot, 'query', {
       configurable: false,
       enumerable: true,
@@ -71,6 +71,10 @@ export interface HookLifecycleMetadata {
   attempt: number
   maxAttempts: number
   queryString?: string
+}
+
+function isURLSearchParams(value: unknown): value is URLSearchParams {
+  return value instanceof URLSearchParams
 }
 
 function freezeQueryParams(query: QueryParams): QueryParams {
