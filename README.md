@@ -406,7 +406,11 @@ The public package surface is intentionally narrow:
 - `npm run check:pack-smoke`: smoke-test the packed tarball from a clean temporary install
 - `npm run lint`: run TypeScript static checks
 - `npm test`: run the test suite
+- `npm run test:browser-like`: run browser-like package entrypoint coverage with `happy-dom`
 
 ## Status
 
-`clearfetch` is published as `@gavoryn/clearfetch`. Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.
+`clearfetch` is published as `@gavoryn/clearfetch`. The `main` branch may be
+ahead of the latest npm package until a matching release tag runs the Release
+workflow. Check npm and GitHub Releases for the currently published version.
+Project goals and behavior are documented in `PURPOSE.md` and `DESIGN.md`.

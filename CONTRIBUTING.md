@@ -14,9 +14,15 @@ Thanks for the interest in improving `clearfetch`.
 - `npm install`
 - `npm run lint`
 - `npm test`
+- `npm run test:browser-like`
 - `npm run build`
 - `npm run check:package-metadata`
 - `npm run check:pack-smoke`
+
+For dependency changes, also run the relevant audit command, usually:
+
+- `npm audit --registry=https://registry.npmjs.org`
+- `npm audit --omit=dev --registry=https://registry.npmjs.org`
 
 Changes should keep the public API, docs, tests, and runtime behavior aligned.
 

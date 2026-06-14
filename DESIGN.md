@@ -286,14 +286,14 @@ The request lifecycle is defined as follows:
 4. Build final headers
 5. Normalize the request body
 6. Execute `beforeRequest` hooks
-7. Create the final `Request`
-8. Apply timeout and abort configuration
+7. Create the per-attempt timeout and abort signal
+8. Create the final `Request` with the composed signal
 9. Perform `fetch`
 10. Execute `afterResponse` hooks
 11. Classify non-success HTTP responses
 12. Parse the response according to `responseType`
 13. Return parsed result or raw `Response`
-14. On failure, execute `onError` hooks with the classified failure context
+14. On failure, execute `onError` hooks with the normalized or thrown failure context described below
 15. Re-throw the classified failure
 
 This order is intentional and should remain stable unless there is a strong reason to change it.
@@ -486,7 +486,7 @@ The package should not perform schema validation or content introspection beyond
 
 ### GET and HEAD bodies
 
-As a general rule, bodies on `GET` and `HEAD` requests should be rejected or strongly constrained in v1.
+Bodies on `GET` and `HEAD` requests are rejected in v1.
 
 Even though some systems tolerate them, they are unusual and frequently confusing. The package should prefer conservative behavior unless there is a compelling reason otherwise.
 
@@ -1136,4 +1136,3 @@ The design should always favor:
 * trustworthiness over feature count
 
 That philosophy is the product.
-```
