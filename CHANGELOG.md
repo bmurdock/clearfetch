@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.5
 
 - add `redactHeaders()` for safe application-owned diagnostics without built-in logging
 - have the release workflow create or verify GitHub Release records after npm publish
