@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- add `redactHeaders()` for safe application-owned diagnostics without built-in logging
 - have the release workflow create or verify GitHub Release records after npm publish
 - expose retry attempt and serialized query metadata to hooks through `context.options`
 - allow native `URLSearchParams` as `query` input while preserving duplicate-key ordering

@@ -227,6 +227,29 @@ Hook scope is intentionally narrow:
 
 Cloned `afterResponse` inspection is intended for ordinary API payloads, not large streaming or heavy binary workflows.
 
+#### Safe diagnostic header logging
+
+clearfetch has no built-in logging or telemetry. Applications that log request
+diagnostics can use `redactHeaders()` to copy headers and replace common
+sensitive values before writing application-owned diagnostics.
+By default, it redacts exact case-insensitive matches for `authorization`,
+`cookie`, `set-cookie`, `proxy-authorization`, `x-api-key`, and `api-key`.
+
+```ts
+import { createClient, redactHeaders } from '@gavoryn/clearfetch'
+
+const api = createClient({
+  hooks: {
+    beforeRequest: [
+      (context) => {
+        const safeHeaders = redactHeaders(context.headers)
+        console.log(Object.fromEntries(safeHeaders))
+      },
+    ],
+  },
+})
+```
+
 ### Error handling
 
 ```ts

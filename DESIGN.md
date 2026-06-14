@@ -859,16 +859,16 @@ The package’s runtime security posture is grounded in the following choices:
 
 ### Sensitive data handling
 
-The package must avoid logging or exposing sensitive headers automatically.
+The package must avoid logging or exposing sensitive headers automatically. The core package itself should avoid built-in logging.
 
-If helper utilities exist for diagnostics, they should support redaction of commonly sensitive header names such as:
+Applications that own diagnostics may use the public `redactHeaders()` helper to copy headers and redact exactly matched sensitive header names. By default, the helper redacts:
 
-- `Authorization`
-- `Cookie`
-- `Set-Cookie`
-- API-key style headers
-
-The core package itself should avoid built-in logging.
+- `authorization`
+- `cookie`
+- `set-cookie`
+- `proxy-authorization`
+- `x-api-key`
+- `api-key`
 
 ### Redirect behavior
 

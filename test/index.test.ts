@@ -16,6 +16,7 @@ test('package entrypoint loads', () => {
     'createClient',
     'isHttpClientError',
     'isHttpError',
+    'redactHeaders',
     'request',
   ])
 })

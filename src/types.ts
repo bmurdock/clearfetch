@@ -33,6 +33,11 @@ export type QueryParams = Record<string, QueryValue>
 
 export type QueryInput = QueryParams | URLSearchParams
 
+export interface RedactHeadersOptions {
+  headerNames?: readonly string[]
+  replacement?: string
+}
+
 /**
  * Conservative retry configuration.
  *
