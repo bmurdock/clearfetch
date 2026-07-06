@@ -651,6 +651,67 @@ test('retry attempts rebuild POST json bodies after the first attempt', async ()
   }
 })
 
+test('onError observes retry attempt request rebuild failures before rethrow', async () => {
+  const originalFetch = globalThis.fetch
+  const observedErrors: unknown[] = []
+  let attempts = 0
+  let stringifyCalls = 0
+
+  const payload = {
+    toJSON() {
+      stringifyCalls += 1
+      if (stringifyCalls === 2) {
+        throw new Error('cannot replay payload')
+      }
+      return { ok: true }
+    },
+  }
+
+  globalThis.fetch = async () => {
+    attempts += 1
+    return new Response('retry', {
+      status: 503,
+      statusText: 'Service Unavailable',
+    })
+  }
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          method: 'POST',
+          json: payload,
+          hooks: {
+            onError: [
+              async (context) => {
+                observedErrors.push(context.error)
+              },
+            ],
+          },
+          retry: {
+            attempts: 2,
+            backoffMs: 1,
+            maxBackoffMs: 1,
+            multiplier: 1,
+            retryOnStatuses: [503],
+            retryOnMethods: ['POST'],
+          },
+        }),
+      (error) =>
+        error instanceof Error &&
+        error.message === 'cannot replay payload',
+    )
+
+    assert.equal(attempts, 1)
+    assert.equal(stringifyCalls, 2)
+    assert.equal(observedErrors.length, 1)
+    assert.ok(observedErrors[0] instanceof Error)
+    assert.equal((observedErrors[0] as Error).message, 'cannot replay payload')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('retryable HTTP responses do not read body text before retrying', async () => {
   const originalText = Response.prototype.text
   let attempts = 0
@@ -1356,4 +1417,45 @@ test('request-level beforeRequest hook can override client header values', async
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('onError observes request normalization failures before rethrow', async () => {
+  const observedErrors: unknown[] = []
+
+  await assert.rejects(
+    () =>
+      request('https://api.example.com/users', {
+        retry: {
+          attempts: 0,
+        },
+        hooks: {
+          onError: [
+            async (context) => {
+              observedErrors.push(context.error)
+            },
+          ],
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`retry.attempts` must be a positive integer',
+  )
+
+  assert.equal(observedErrors.length, 1)
+  assert.ok(observedErrors[0] instanceof ConfigError)
+})
+
+test('invalid onError hooks do not mask request normalization failures', async () => {
+  await assert.rejects(
+    () =>
+      request('https://api.example.com/users', {
+        method: 123 as never,
+        hooks: {
+          onError: [undefined as never],
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`method` must be a string',
+  )
 })

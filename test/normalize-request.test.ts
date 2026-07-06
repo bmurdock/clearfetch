@@ -104,6 +104,18 @@ test('normalizeRequestOptions rejects body plus json', () => {
   )
 })
 
+test('normalizeRequestOptions rejects non-string request methods', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        method: 123 as never,
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`method` must be a string',
+  )
+})
+
 test('normalizeRequestOptions rejects request bodies for GET and HEAD', () => {
   assert.throws(
     () =>
@@ -151,6 +163,44 @@ test('normalizeRequestOptions rejects non-function parseJson values', () => {
     (error) =>
       error instanceof ConfigError &&
       error.message === '`parseJson` must be a function',
+  )
+})
+
+test('normalizeRequestOptions rejects invalid hook configuration', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        hooks: {
+          beforeRequest: (() => undefined) as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`hooks.beforeRequest` must be an array of functions',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        hooks: {
+          onError: [undefined as never],
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`hooks.onError` must be an array of functions',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        hooks: {
+          afterResponse: new Array(1) as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`hooks.afterResponse` must be an array of functions',
   )
 })
 

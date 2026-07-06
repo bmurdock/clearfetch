@@ -44,6 +44,28 @@ test('parseResponse throws ParseError for invalid non-empty json', async () => {
   )
 })
 
+test('parseResponse truncates large ParseError body text', async () => {
+  const response = new Response(`{${'x'.repeat(20_000)}`, {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'json',
+        parseJson: JSON.parse,
+      }),
+    (error) =>
+      error instanceof ParseError &&
+      typeof error.bodyText === 'string' &&
+      error.bodyText.length < 20_000 &&
+      error.bodyText.endsWith('...[truncated]'),
+  )
+})
+
 test('parseResponse throws HttpError for non-2xx responses', async () => {
   const request = new Request('https://api.example.com/users')
   const response = new Response('missing', {

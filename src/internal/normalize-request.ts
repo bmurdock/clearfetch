@@ -2,7 +2,6 @@ import { ConfigError } from '../errors.js'
 import type {
   BeforeRequestContext,
   ClientDefaults,
-  Hooks,
   NormalizedRequestOptions,
   PrimitiveQueryValue,
   QueryInput,
@@ -11,6 +10,7 @@ import type {
   RequestOptions,
   ResponseType,
 } from '../types.js'
+import { mergeHooks } from './hooks.js'
 import { createHookRequestOptions } from './hook-options.js'
 import { REQUEST_METHODS, normalizeRetry } from './retry-policy.js'
 
@@ -21,12 +21,6 @@ const RESPONSE_TYPES = new Set<ResponseType>([
   'arrayBuffer',
   'raw',
 ])
-
-const EMPTY_HOOKS: Required<Hooks> = {
-  beforeRequest: [],
-  afterResponse: [],
-  onError: [],
-}
 
 const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text)
 
@@ -243,27 +237,11 @@ function mergeHeaders(
   return headers
 }
 
-function mergeHooks(
-  defaultHooks?: Hooks,
-  requestHooks?: Hooks,
-): Required<Hooks> {
-  return {
-    beforeRequest: [
-      ...(defaultHooks?.beforeRequest ?? EMPTY_HOOKS.beforeRequest),
-      ...(requestHooks?.beforeRequest ?? EMPTY_HOOKS.beforeRequest),
-    ],
-    afterResponse: [
-      ...(defaultHooks?.afterResponse ?? EMPTY_HOOKS.afterResponse),
-      ...(requestHooks?.afterResponse ?? EMPTY_HOOKS.afterResponse),
-    ],
-    onError: [
-      ...(defaultHooks?.onError ?? EMPTY_HOOKS.onError),
-      ...(requestHooks?.onError ?? EMPTY_HOOKS.onError),
-    ],
+function normalizeMethod(method: unknown): RequestMethod {
+  if (typeof method !== 'string') {
+    throw new ConfigError('`method` must be a string')
   }
-}
 
-function normalizeMethod(method: string): RequestMethod {
   return method.toUpperCase() as RequestMethod
 }
 
