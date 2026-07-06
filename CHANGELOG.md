@@ -3,6 +3,13 @@
 Entries describe repository versions. A version is publicly released only after
 the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
 
+## 1.0.6
+
+- validate hook configuration consistently for client defaults and request options
+- report invalid methods and hook lists as `ConfigError` instead of raw runtime errors
+- route request normalization and retry rebuild failures through `onError` before rethrowing
+- cap retained `ParseError.bodyText` diagnostics for large invalid JSON responses
+
 ## 1.0.5
 
 - add `redactHeaders()` for safe application-owned diagnostics without built-in logging
