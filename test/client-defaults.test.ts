@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { ConfigError } from '../src/errors.js'
 import {
   mergeClientDefaults,
   snapshotClientDefaults,
@@ -91,6 +92,32 @@ test('snapshotClientDefaults preserves property insertion order', () => {
     'hooks',
     'parseJson',
   ])
+})
+
+test('snapshotClientDefaults rejects invalid hook defaults', () => {
+  assert.throws(
+    () =>
+      snapshotClientDefaults({
+        hooks: {
+          beforeRequest: (() => undefined) as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`hooks.beforeRequest` must be an array of functions',
+  )
+
+  assert.throws(
+    () =>
+      snapshotClientDefaults({
+        hooks: {
+          onError: new Array(1) as never,
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`hooks.onError` must be an array of functions',
+  )
 })
 
 test('mergeClientDefaults lets child scalar defaults override parent defaults', () => {

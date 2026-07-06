@@ -69,7 +69,7 @@ async function parseJsonResponse<T>(
     throw new ParseError({
       response,
       responseType: 'json',
-      bodyText,
+      bodyText: truncateBodyText(bodyText, MAX_ERROR_BODY_TEXT_CHARS),
       cause,
     })
   }

@@ -214,10 +214,11 @@ const api = createClient({
 })
 ```
 
-`beforeRequest` hook failures and request-construction failures propagate as-is
-and are observable through `onError` before being re-thrown. `afterResponse` hooks
-receive a cloned `Response`, so reading the body there does not consume the
-response used for normal parsing or `HttpError` creation.
+`beforeRequest` hook failures, request-normalization failures, retry rebuild
+failures, and request-construction failures propagate as-is and are observable
+through `onError` before being re-thrown. `afterResponse` hooks receive a
+cloned `Response`, so reading the body there does not consume the response used
+for normal parsing or `HttpError` creation.
 
 Hook scope is intentionally narrow:
 
@@ -325,11 +326,13 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 
 - Non-2xx responses throw `HttpError`.
 - `HttpError.bodyText` capture is bounded and may be truncated for very large payloads.
+- `ParseError.bodyText` capture is also bounded and may be truncated for very large invalid JSON payloads.
 - `HttpError.response` remains available for status, headers, and metadata, but its body may already be consumed or canceled by diagnostic `bodyText` capture.
 - JSON mode returns `undefined` for empty response bodies.
 - In JSON mode, successful empty bodies resolve as `T | undefined`.
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
-- Hook and request-construction failures are not wrapped as `NetworkError`.
+- Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`.
+- Hook, request-normalization, retry rebuild, and request-construction failures are not wrapped as `NetworkError`.
 - `afterResponse` receives a cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
 - `beforeRequest` may override the URL only with a final absolute URL.

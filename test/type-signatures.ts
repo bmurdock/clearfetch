@@ -1,6 +1,12 @@
-import { createClient, request } from '../src/index.js'
+import {
+  createClient,
+  request,
+  type NormalizedRequestOptions,
+} from '../src/index.js'
 
 const client = createClient()
+type PublicNormalizedRequestOptions = NormalizedRequestOptions
+void (undefined as unknown as PublicNormalizedRequestOptions)
 
 const jsonPromise: Promise<{ ok: boolean } | undefined> = request<{ ok: boolean }>(
   'https://api.example.com/users',

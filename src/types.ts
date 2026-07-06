@@ -210,6 +210,10 @@ export interface Hooks {
   onError?: OnErrorHook[]
 }
 
+/**
+ * @deprecated Internal execution metadata. Prefer public request, client, and
+ * hook option types for consumer code.
+ */
 export interface NormalizedRequestOptions {
   method: RequestMethod
   headers: Headers

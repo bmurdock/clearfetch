@@ -23,6 +23,7 @@ import {
   createBeforeRequestContext,
   type ExecutionBeforeRequestContext,
 } from './normalize-request.js'
+import { normalizeOnErrorHooks } from './hooks.js'
 import { parseResponse } from './parse-response.js'
 import {
   getRetryDelay,
@@ -44,7 +45,26 @@ export async function executeRequest<T = unknown>(
 ): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
   // Determine retry bounds from a normalized first pass, then rebuild the
   // full execution context per attempt so hook mutations do not leak across retries.
-  const initialContext = createBeforeRequestContext(input, defaults, options)
+  let initialContext: ExecutionBeforeRequestContext
+  try {
+    initialContext = createBeforeRequestContext(input, defaults, options)
+  } catch (error) {
+    let onErrorHooks: OnErrorHook[]
+    try {
+      // Request normalization failed before a context exists, so only recover
+      // valid `onError` hooks and avoid letting invalid hook config mask it.
+      onErrorHooks = getInitialOnErrorHooks(defaults, options)
+    } catch {
+      throw error
+    }
+
+    await runOnErrorHooks({
+      input,
+      error,
+    }, onErrorHooks)
+    throw error
+  }
+
   const maxAttempts =
     initialContext._internalOptions.retry === false
       ? 1
@@ -53,10 +73,20 @@ export async function executeRequest<T = unknown>(
   let lastError: HttpClientError | undefined
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const context =
-      attempt === 1
-        ? initialContext
-        : createBeforeRequestContext(input, defaults, options, attempt)
+    let context: ExecutionBeforeRequestContext
+    if (attempt === 1) {
+      context = initialContext
+    } else {
+      try {
+        context = createBeforeRequestContext(input, defaults, options, attempt)
+      } catch (error) {
+        await runOnErrorHooks({
+          input,
+          error,
+        }, initialContext._internalOptions.hooks.onError)
+        throw error
+      }
+    }
 
     try {
       try {
@@ -204,6 +234,16 @@ async function runOnErrorHooks(
   for (const hook of hooks) {
     await hook(context)
   }
+}
+
+function getInitialOnErrorHooks(
+  defaults: ClientDefaults,
+  options: RequestOptions,
+): OnErrorHook[] {
+  return [
+    ...normalizeOnErrorHooks(defaults.hooks),
+    ...normalizeOnErrorHooks(options.hooks),
+  ]
 }
 
 class RetrySignal {

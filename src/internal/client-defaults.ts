@@ -3,6 +3,12 @@ import type {
   Hooks,
   RetryOptions,
 } from '../types.js'
+import {
+  mergeHooks,
+  normalizeAfterResponseHooks,
+  normalizeBeforeRequestHooks,
+  normalizeOnErrorHooks,
+} from './hooks.js'
 
 export function mergeClientDefaults(
   parent: ClientDefaults,
@@ -81,20 +87,7 @@ function mergeHookDefaults(
   parent: ClientDefaults,
   child: ClientDefaults,
 ): void {
-  const hooks = {
-    beforeRequest: [
-      ...(parent.hooks?.beforeRequest ?? []),
-      ...(child.hooks?.beforeRequest ?? []),
-    ],
-    afterResponse: [
-      ...(parent.hooks?.afterResponse ?? []),
-      ...(child.hooks?.afterResponse ?? []),
-    ],
-    onError: [
-      ...(parent.hooks?.onError ?? []),
-      ...(child.hooks?.onError ?? []),
-    ],
-  }
+  const hooks = mergeHooks(parent.hooks, child.hooks)
 
   if (hooks.beforeRequest.length + hooks.afterResponse.length + hooks.onError.length > 0) {
     merged.hooks = hooks
@@ -196,19 +189,17 @@ function copyRetryOnMethods(
 function snapshotHooks(hooks: Hooks): Hooks {
   const snapshot: Hooks = {}
 
-  copyHookList(snapshot, 'beforeRequest', hooks.beforeRequest)
-  copyHookList(snapshot, 'afterResponse', hooks.afterResponse)
-  copyHookList(snapshot, 'onError', hooks.onError)
+  if (hooks.beforeRequest !== undefined) {
+    snapshot.beforeRequest = normalizeBeforeRequestHooks(hooks)
+  }
+
+  if (hooks.afterResponse !== undefined) {
+    snapshot.afterResponse = normalizeAfterResponseHooks(hooks)
+  }
+
+  if (hooks.onError !== undefined) {
+    snapshot.onError = normalizeOnErrorHooks(hooks)
+  }
 
   return snapshot
-}
-
-function copyHookList<Key extends keyof Hooks>(
-  snapshot: Hooks,
-  key: Key,
-  hooks: Hooks[Key],
-): void {
-  if (hooks !== undefined) {
-    snapshot[key] = hooks.slice() as Hooks[Key]
-  }
 }
