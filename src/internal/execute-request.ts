@@ -51,6 +51,8 @@ export async function executeRequest<T = unknown>(
   } catch (error) {
     let onErrorHooks: OnErrorHook[]
     try {
+      // Request normalization failed before a context exists, so only recover
+      // valid `onError` hooks and avoid letting invalid hook config mask it.
       onErrorHooks = getInitialOnErrorHooks(defaults, options)
     } catch {
       throw error
