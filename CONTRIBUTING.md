@@ -18,6 +18,7 @@ Thanks for the interest in improving `clearfetch`.
 - `npm run build`
 - `npm run check:package-metadata`
 - `npm run check:pack-smoke`
+- `npm run check:publish-dry-run` for release-path changes
 
 For dependency changes, also run the relevant audit command, usually:
 
