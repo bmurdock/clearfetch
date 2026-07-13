@@ -2,12 +2,17 @@
 
 ## Supported runtimes
 
-Security support is currently scoped to the actively supported runtime targets for this project:
+Package compatibility starts at Node.js `18.x`, as declared in `package.json`.
+Security support is narrower and applies only when clearfetch is used on a
+Node.js release line that is still supported by the Node.js project:
 
-- Node.js `18.x` and newer
+- upstream-supported Node.js release lines
 - modern browsers with native `fetch`, `Request`, `Response`, `Headers`, `URL`, and `AbortController`
 
-Legacy runtimes, polyfill-driven environments, and unsupported platform shims are out of scope.
+See the [official Node.js release status](https://nodejs.org/en/about/previous-releases)
+for the current lifecycle. Vulnerabilities caused by EOL Node.js releases,
+legacy runtimes, polyfill-driven environments, and unsupported platform shims
+are out of scope.
 
 ## Reporting a vulnerability
 

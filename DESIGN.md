@@ -481,6 +481,7 @@ Rules:
 - `json` and `body` are mutually exclusive
 - when `json` is provided, the package serializes it with `JSON.stringify`
 - if `Content-Type` is not already set, it is set to `application/json`
+- values for which `JSON.stringify` returns `undefined` or throws `TypeError` fail with `ConfigError` before network execution; other caller-owned exceptions encountered during serialization, including from `toJSON` or property access, propagate as-is
 
 The package should not perform schema validation or content introspection beyond what is necessary for consistent behavior.
 
@@ -529,7 +530,7 @@ When `responseType` is `json`, an empty response body yields `undefined`.
 
 For this purpose, a response body is considered empty if reading it yields an empty string.
 
-This applies to `204`, `205`, and `304` responses and to other successful responses whose body is empty.
+This applies to `204`, `205`, and other successful responses whose body is empty. A `304` remains a non-2xx response and therefore throws `HttpError`.
 
 As a result, JSON responses are typed as `T | undefined` rather than `T` alone.
 

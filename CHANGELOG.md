@@ -3,6 +3,15 @@
 Entries describe repository versions. A version is publicly released only after
 the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
 
+## Unreleased
+
+- cancel abandoned response bodies before retrying eligible HTTP failures
+- reject invalid query containers and JSON values for which `JSON.stringify` returns `undefined` or throws `TypeError` with `ConfigError`
+- recognize `URLSearchParams` values across browser realm boundaries
+- require release tags to be annotated and reachable from `main` before publishing
+- keep release verification rerunnable when the package version already exists for the same commit
+- distinguish Node.js package compatibility from upstream-backed security support
+
 ## 1.0.6
 
 - validate hook configuration consistently for client defaults and request options

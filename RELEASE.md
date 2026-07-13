@@ -18,6 +18,9 @@ Local `npm publish` should not be used for normal releases.
 
 The tag must match the package version exactly, for example package version `1.2.3` must be released from tag `v1.2.3`. If a workflow rerun finds that exact package version already published on npm and the published `gitHead` matches the checked-out tag commit, it skips publishing and still creates or verifies the GitHub Release record.
 
+Before publishing, the workflow also verifies that the release tag is annotated
+and that its commit is reachable from `origin/main`.
+
 Post-release verification:
 
 ```bash
@@ -35,7 +38,11 @@ That dry-run path should verify:
 - install, lint, test, and build steps
 - package metadata with `npm run check:package-metadata`
 - packed artifact behavior with `npm run check:pack-smoke`
-- publishability with `npm publish --dry-run --registry=https://registry.npmjs.org`
+- publishability with `npm run check:publish-dry-run -- --allow-existing`, which uses the public npm registry explicitly, dry-runs unpublished versions, and permits manual validation to skip an existing version
+
+Tag-triggered verification uses strict `npm run check:publish-dry-run` instead.
+For an already-published tag rerun, that mode requires npm `gitHead` to match
+the checked-out tag commit before the publish job can continue.
 
 Use the dry-run path before relying on a first release or after making workflow
 changes that affect packaging or publishing.
@@ -88,4 +95,5 @@ The release process must preserve the package’s public claims:
 - no lifecycle scripts
 - no built-in telemetry
 - no hidden network behavior beyond the caller's request
-- support limited to Node.js `18+` and modern browsers
+- package compatibility starting at Node.js `18+`, with security support limited to upstream-supported Node.js release lines
+- modern browsers with the native web platform APIs documented in `README.md`

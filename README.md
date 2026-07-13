@@ -102,6 +102,7 @@ If `json` is provided, clearfetch:
 - serializes the value with `JSON.stringify()`
 - sets `Content-Type: application/json` if it is not already present
 - rejects the request with `ConfigError` if `body` is also provided
+- rejects values when `JSON.stringify()` returns `undefined` or throws `TypeError` with `ConfigError`; other caller-owned exceptions encountered during serialization, including from `toJSON()` or property access, propagate as-is
 
 Use `body` directly only when you want to send a raw payload such as `FormData`, `URLSearchParams`, or pre-serialized text.
 
@@ -370,10 +371,13 @@ If you need end-to-end runtime safety, validate parsed data with a schema librar
 
 clearfetch currently supports:
 
-- Node.js `18.x` and newer
+- Node.js `18.x` and newer for package compatibility
 - modern browsers with native `fetch`, `Request`, `Response`, `Headers`, `URL`, and `AbortController`
 
 The package is ESM-only and does not target legacy runtimes or polyfill-driven environments.
+For security-sensitive use, run clearfetch on a Node.js release line that is
+still [supported upstream](https://nodejs.org/en/about/previous-releases); EOL
+Node.js releases do not receive upstream security fixes.
 
 ## Security
 
@@ -385,7 +389,7 @@ The package is ESM-only and does not target legacy runtimes or polyfill-driven e
 
 - CI lints GitHub Actions workflows before merge.
 - CI runs lint, test, and build checks on selected supported Node.js versions.
-- CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `20`.
+- CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `24`.
 - Dependency review is enforced for pull requests and supports manual base/head validation.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
 - npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
@@ -399,6 +403,7 @@ The public package surface is intentionally narrow:
 
 - the root export provides the supported runtime API and public types
 - internal implementation modules are not part of the supported import contract
+- the deprecated `NormalizedRequestOptions` type remains exported only for compatibility and is planned for removal in the next major version
 - the package includes no lifecycle scripts and is intended to publish only built `dist/` artifacts
 
 ## Development
@@ -407,6 +412,7 @@ The public package surface is intentionally narrow:
 - `npm run build`: compile the package into `dist/`
 - `npm run check:package-metadata`: validate publish metadata and zero-runtime-dependency posture
 - `npm run check:pack-smoke`: smoke-test the packed tarball from a clean temporary install
+- `npm run check:publish-dry-run`: dry-run unpublished versions or verify an already-published version came from the current commit; add `-- --allow-existing` only for non-publishing manual workflow validation
 - `npm run lint`: run TypeScript static checks
 - `npm test`: run the test suite
 - `npm run test:browser-like`: run browser-like package entrypoint coverage with `happy-dom`
