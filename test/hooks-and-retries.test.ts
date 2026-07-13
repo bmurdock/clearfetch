@@ -759,6 +759,50 @@ test('retryable HTTP responses do not read body text before retrying', async () 
   )
 })
 
+test('retryable HTTP responses cancel abandoned response bodies', async () => {
+  let attempts = 0
+  let cancelCalls = 0
+
+  const fetchImpl: typeof fetch = async () => {
+    attempts += 1
+
+    if (attempts === 1) {
+      return new Response(new ReadableStream({
+        cancel() {
+          cancelCalls += 1
+        },
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('retry'))
+        },
+      }), {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  await withMockedFetch(fetchImpl, async () => {
+    const result = await request<{ ok: boolean }>(
+      'https://api.example.com/users',
+      {
+        retry: {
+          attempts: 2,
+          backoffMs: 1,
+          maxBackoffMs: 1,
+          multiplier: 1,
+          retryOnStatuses: [503],
+          retryOnMethods: ['GET'],
+        },
+      },
+    )
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(cancelCalls, 1)
+  })
+})
+
 test('abort during HTTP retry backoff stops promptly with AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
   const controller = new AbortController()

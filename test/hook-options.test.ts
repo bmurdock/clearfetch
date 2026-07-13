@@ -109,6 +109,17 @@ test('createHookRequestOptions exposes serialized URLSearchParams query metadata
   assert.equal(snapshot.queryString, 'tag=a&page=1&tag=b')
 })
 
+test('createHookRequestOptions recognizes cross-realm URLSearchParams metadata', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  Object.setPrototypeOf(query, null)
+  const snapshot = createHookRequestOptions(
+    createOptions({ query: query as URLSearchParams }),
+    DEFAULT_METADATA,
+  )
+
+  assert.equal(Object.hasOwn(snapshot, 'query'), false)
+})
+
 test('createHookRequestOptions freezes query metadata and query arrays when query is present', () => {
   const query = {
     page: 2,

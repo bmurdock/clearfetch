@@ -34,12 +34,16 @@ export function createBeforeRequestContext(
   options: RequestOptions = {},
   attempt = 1,
 ): ExecutionBeforeRequestContext {
-  const url = resolveRequestURL(input, defaults.baseURL, options.query)
   const normalized = normalizeRequestOptions(defaults, options)
+  const queryString = serializeValidatedQueryParams(normalized.query)
+  const url = resolveRequestURLWithQueryString(
+    input,
+    defaults.baseURL,
+    queryString,
+  )
   const body = resolveRequestBody(normalized)
   validateRetryableBody(body, normalized.retry)
   const maxAttempts = normalized.retry === false ? 1 : normalized.retry.attempts
-  const queryString = serializeQueryParams(normalized.query)
   const optionsView = createHookRequestOptions(normalized, {
     attempt,
     maxAttempts,
@@ -117,11 +121,16 @@ export function normalizeRequestOptions(
   )
   const headers = mergeHeaders(defaults.headers, options.headers)
 
-  if (options.body !== undefined && options.json !== undefined) {
+  const hasJson = Object.hasOwn(options, 'json')
+
+  if (options.body !== undefined && hasJson) {
     throw new ConfigError('`body` and `json` cannot both be provided')
   }
 
-  if ((method === 'GET' || method === 'HEAD') && (options.body !== undefined || options.json !== undefined)) {
+  if (
+    (method === 'GET' || method === 'HEAD') &&
+    (options.body !== undefined || hasJson)
+  ) {
     throw new ConfigError(`\`${method}\` requests cannot include a request body`)
   }
 
@@ -139,9 +148,7 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
-    if (!isURLSearchParams(options.query)) {
-      validateQueryParams(options.query)
-    }
+    validateQueryInput(options.query)
     normalized.query = options.query
   }
 
@@ -149,7 +156,7 @@ export function normalizeRequestOptions(
     normalized.body = options.body
   }
 
-  if (options.json !== undefined) {
+  if (hasJson) {
     normalized.json = options.json
   }
 
@@ -169,10 +176,22 @@ export function resolveRequestURL(
   baseURL?: string | URL,
   query?: QueryInput,
 ): URL {
+  return resolveRequestURLWithQueryString(
+    input,
+    baseURL,
+    serializeQueryParams(query),
+  )
+}
+
+function resolveRequestURLWithQueryString(
+  input: string | URL,
+  baseURL: string | URL | undefined,
+  queryString: string,
+): URL {
   const base = baseURL === undefined ? undefined : toAbsoluteURL(baseURL, 'Invalid base URL')
   const url = input instanceof URL ? new URL(input) : resolveInputURL(input, base)
 
-  applyQueryParams(url, query)
+  applyQueryString(url, queryString)
   return url
 }
 
@@ -181,8 +200,17 @@ export function serializeQueryParams(query?: QueryInput): string {
     return ''
   }
 
+  validateQueryInput(query)
+  return serializeValidatedQueryParams(query)
+}
+
+function serializeValidatedQueryParams(query?: QueryInput): string {
+  if (query === undefined) {
+    return ''
+  }
+
   if (isURLSearchParams(query)) {
-    return query.toString()
+    return URLSearchParams.prototype.toString.call(query)
   }
 
   const params = new URLSearchParams()
@@ -205,19 +233,26 @@ export function serializeQueryParams(query?: QueryInput): string {
   return params.toString()
 }
 
-function applyQueryParams(url: URL, query?: QueryInput): void {
-  const serialized = serializeQueryParams(query)
-
-  if (serialized === '') {
+function applyQueryString(url: URL, queryString: string): void {
+  if (queryString === '') {
     return
   }
 
-  const suffix = url.search === '' ? serialized : `&${serialized}`
+  const suffix = url.search === '' ? queryString : `&${queryString}`
   url.search += suffix
 }
 
 function isURLSearchParams(value: unknown): value is URLSearchParams {
-  return value instanceof URLSearchParams
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  try {
+    URLSearchParams.prototype.toString.call(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function mergeHeaders(
@@ -305,7 +340,7 @@ function toAbsoluteURL(value: string | URL, message: string): URL {
 function resolveRequestBody(
   options: Pick<NormalizedRequestOptions, 'body' | 'headers' | 'json'>,
 ): BodyInit | null | undefined {
-  if (options.json === undefined) {
+  if (!Object.hasOwn(options, 'json')) {
     return options.body
   }
 
@@ -313,7 +348,21 @@ function resolveRequestBody(
     options.headers.set('Content-Type', 'application/json')
   }
 
-  return JSON.stringify(options.json)
+  try {
+    const body = JSON.stringify(options.json)
+    if (body === undefined) {
+      throw new ConfigError('`json` must serialize to a JSON value')
+    }
+    return body
+  } catch (cause) {
+    if (cause instanceof ConfigError) {
+      throw cause
+    }
+    if (cause instanceof TypeError) {
+      throw new ConfigError('`json` must serialize to a JSON value', cause)
+    }
+    throw cause
+  }
 }
 
 function serializeScalarQueryValue(
@@ -329,6 +378,30 @@ function serializeScalarQueryValue(
 function validateQueryParams(query: QueryParams): void {
   for (const [key, value] of Object.entries(query)) {
     validateQueryValue(key, value)
+  }
+}
+
+function validateQueryInput(query: unknown): asserts query is QueryInput {
+  if (isURLSearchParams(query)) {
+    return
+  }
+
+  if (!isQueryParamsRecord(query)) {
+    throw new ConfigError('`query` must be a record or URLSearchParams')
+  }
+
+  validateQueryParams(query)
+}
+
+function isQueryParamsRecord(value: unknown): value is QueryParams {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+
+  try {
+    return Object.prototype.toString.call(value) === '[object Object]'
+  } catch {
+    return false
   }
 }
 

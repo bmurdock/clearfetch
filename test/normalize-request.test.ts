@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
 
 import { ConfigError } from '../src/errors.js'
 import {
@@ -29,6 +30,16 @@ test('serializeQueryParams preserves URLSearchParams ordering and duplicate keys
   query.append('tag', 'b')
 
   assert.equal(serializeQueryParams(query), 'tag=a&page=1&tag=b')
+})
+
+test('serializeQueryParams accepts URLSearchParams values across realm boundaries', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  Object.setPrototypeOf(query, null)
+
+  assert.equal(
+    serializeQueryParams(query as URLSearchParams),
+    'tag=a&page=1&tag=b',
+  )
 })
 
 test('resolveRequestURL appends URLSearchParams query input', () => {
@@ -290,6 +301,41 @@ test('normalizeRequestOptions rejects unsupported query values', () => {
   )
 })
 
+test('normalizeRequestOptions rejects invalid query containers with ConfigError', () => {
+  for (const query of [null, 42, []]) {
+    assert.throws(
+      () =>
+        normalizeRequestOptions({}, {
+          query: query as never,
+        }),
+      (error) =>
+        error instanceof ConfigError &&
+        error.message === '`query` must be a record or URLSearchParams',
+    )
+  }
+})
+
+test('normalizeRequestOptions accepts query records across realm boundaries', () => {
+  const query = runInNewContext('({ page: 2, tags: ["design", "types"] })')
+  const options = normalizeRequestOptions({}, {
+    query,
+  })
+
+  assert.equal(serializeQueryParams(options.query), 'page=2&tags=design&tags=types')
+})
+
+test('createBeforeRequestContext validates query input before URL serialization', () => {
+  assert.throws(
+    () =>
+      createBeforeRequestContext('https://api.example.com/users', {}, {
+        query: null as never,
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`query` must be a record or URLSearchParams',
+  )
+})
+
 test('createBeforeRequestContext rejects streaming bodies when retry is enabled', () => {
   assert.throws(
     () =>
@@ -322,6 +368,63 @@ test('buildRequestFromContext serializes json and sets content-type when absent'
 
   assert.equal(request.headers.get('content-type'), 'application/json')
   assert.equal(context.body, JSON.stringify({ name: 'Brian' }))
+})
+
+test('createBeforeRequestContext rejects json values that serialize to undefined', () => {
+  for (const json of [undefined, Symbol('value'), () => undefined]) {
+    assert.throws(
+      () =>
+        createBeforeRequestContext('https://api.example.com/users', {}, {
+          method: 'POST',
+          json,
+        }),
+      (error) =>
+        error instanceof ConfigError &&
+        error.message === '`json` must serialize to a JSON value',
+    )
+  }
+})
+
+test('explicit undefined json still participates in option validation', () => {
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        method: 'POST',
+        body: 'raw',
+        json: undefined,
+      } as unknown as RequestOptions),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`body` and `json` cannot both be provided',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        method: 'GET',
+        json: undefined,
+      } as unknown as RequestOptions),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`GET` requests cannot include a request body',
+  )
+})
+
+test('createBeforeRequestContext wraps json serialization failures as ConfigError', () => {
+  const json: { self?: unknown } = {}
+  json.self = json
+
+  assert.throws(
+    () =>
+      createBeforeRequestContext('https://api.example.com/users', {}, {
+        method: 'POST',
+        json,
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`json` must serialize to a JSON value' &&
+      error.cause instanceof TypeError,
+  )
 })
 
 test('buildRequestFromContext rejects invalid hook URL overrides', () => {

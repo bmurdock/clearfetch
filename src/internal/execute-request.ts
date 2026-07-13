@@ -390,6 +390,7 @@ async function parseWithHandling<T>(params: {
       attempt,
     )
   ) {
+    cancelResponseBody(response)
     await waitForRetry({ attempt, context })
 
     throw new RetrySignal(new HttpError({
@@ -447,4 +448,12 @@ async function parseWithHandling<T>(params: {
 
     throw normalized
   }
+}
+
+function cancelResponseBody(response: Response): void {
+  if (response.body === null) {
+    return
+  }
+
+  void response.body.cancel().catch(() => undefined)
 }
