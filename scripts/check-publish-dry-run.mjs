@@ -1,43 +1,67 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const registry = 'https://registry.npmjs.org'
 const allowExisting = process.argv.includes('--allow-existing')
+const tarballArgument = process.argv
+  .slice(2)
+  .find((argument) => !argument.startsWith('--'))
 const packageConfig = JSON.parse(await readFile('package.json', 'utf8'))
 const packageSpec = `${packageConfig.name}@${packageConfig.version}`
 const published = await getPublishedMetadata(packageSpec)
+const tarballIntegrity = tarballArgument === undefined
+  ? undefined
+  : await calculateIntegrity(tarballArgument)
+const tarballConfig = tarballArgument === undefined
+  ? undefined
+  : await getTarballPackageConfig(tarballArgument)
+
+if (
+  tarballConfig !== undefined &&
+  (tarballConfig.name !== packageConfig.name ||
+    tarballConfig.version !== packageConfig.version)
+) {
+  throw new Error(
+    `tarball identity ${String(tarballConfig.name)}@${String(tarballConfig.version)} does not match workspace ${packageSpec}`,
+  )
+}
 
 if (published === undefined) {
+  const publishTarget = tarballArgument === undefined
+    ? '.'
+    : path.resolve(tarballArgument)
   const { stderr, stdout } = await execFileAsync(
     'npm',
-    ['publish', '--dry-run', `--registry=${registry}`],
+    [
+      'publish',
+      publishTarget,
+      '--dry-run',
+      '--ignore-scripts',
+      `--registry=${registry}`,
+    ],
     { maxBuffer: 10 * 1024 * 1024 },
   )
   process.stdout.write(stdout)
   process.stderr.write(stderr)
   console.log(`publish dry-run passed for unpublished version ${packageSpec}`)
-} else {
-  if (allowExisting) {
-    console.log(
-      `${packageSpec} is already published; publish dry-run skipped for manual validation`,
-    )
-    process.exit(0)
-  }
-
-  const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'])
-  const currentGitHead = stdout.trim()
-
-  if (published.gitHead !== currentGitHead) {
+} else if (tarballIntegrity !== undefined) {
+  if (published['dist.integrity'] !== tarballIntegrity) {
     throw new Error(
-      `published gitHead ${String(published.gitHead)} does not match current commit ${currentGitHead}`,
+      `published integrity ${String(published['dist.integrity'])} does not match verified tarball ${tarballIntegrity}`,
     )
   }
 
-  console.log(
-    `${packageSpec} is already published from the current commit; publish dry-run skipped`,
+  console.log(`${packageSpec} is already published with the verified tarball bytes`)
+} else if (allowExisting) {
+  console.log(`${packageSpec} is already published; non-publishing validation skipped`)
+} else {
+  throw new Error(
+    `${packageSpec} is already published; pass a verified tarball to compare integrity or use --allow-existing for non-publishing validation`,
   )
 }
 
@@ -49,7 +73,7 @@ async function getPublishedMetadata(packageSpec) {
         'view',
         packageSpec,
         'version',
-        'gitHead',
+        'dist.integrity',
         '--json',
         `--registry=${registry}`,
       ],
@@ -62,6 +86,20 @@ async function getPublishedMetadata(packageSpec) {
     }
     throw error
   }
+}
+
+async function calculateIntegrity(tarballPath) {
+  const tarball = await readFile(path.resolve(tarballPath))
+  return `sha512-${createHash('sha512').update(tarball).digest('base64')}`
+}
+
+async function getTarballPackageConfig(tarballPath) {
+  const { stdout } = await execFileAsync(
+    'tar',
+    ['-xOf', path.resolve(tarballPath), 'package/package.json'],
+    { maxBuffer: 1024 * 1024 },
+  )
+  return JSON.parse(stdout)
 }
 
 function isNotFoundError(error) {

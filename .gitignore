@@ -5,6 +5,7 @@ build/
 coverage/
 ignore/
 docs/
+release-artifact/
 *.tsbuildinfo
 
 npm-debug.log*
@@ -19,4 +20,3 @@ pnpm-debug.log*
 
 AGENTS.md
 suggestions.md
-PREPUBLIC_REVIEW.md
