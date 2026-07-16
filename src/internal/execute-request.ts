@@ -70,8 +70,8 @@ export async function executeRequest<T = unknown>(
   }
 
   const maxAttempts = getEffectiveRetryAttempts(
-    initialContext._internalOptions.method,
-    initialContext._internalOptions.retry,
+    initialContext.normalizedOptions.method,
+    initialContext.normalizedOptions.retry,
   )
   const contextSnapshot =
     maxAttempts === 1 ? undefined : snapshotBeforeRequestContext(initialContext)
@@ -92,7 +92,7 @@ export async function executeRequest<T = unknown>(
         await runOnErrorHooks({
           input,
           error,
-        }, initialContext._internalOptions.hooks.onError)
+        }, initialContext.normalizedOptions.hooks.onError)
         throw error
       }
     }
@@ -104,14 +104,14 @@ export async function executeRequest<T = unknown>(
         await runOnErrorHooks({
           input,
           error,
-          options: context.options,
-        }, context._internalOptions.hooks.onError)
+          options: context.hookContext.options,
+        }, context.normalizedOptions.hooks.onError)
         throw error
       }
 
       const timeout = createTimeoutController(
-        context._internalOptions.signal,
-        context._internalOptions.timeout,
+        context.normalizedOptions.signal,
+        context.normalizedOptions.timeout,
       )
 
       try {
@@ -122,8 +122,8 @@ export async function executeRequest<T = unknown>(
           await runOnErrorHooks({
             input,
             error,
-            options: context.options,
-          }, context._internalOptions.hooks.onError)
+            options: context.hookContext.options,
+          }, context.normalizedOptions.hooks.onError)
           throw error
         }
 
@@ -136,23 +136,30 @@ export async function executeRequest<T = unknown>(
           timeout,
         })
 
-        const afterResponseHooks = context._internalOptions.hooks.afterResponse
+        const afterResponseHooks = context.normalizedOptions.hooks.afterResponse
         if (afterResponseHooks.length > 0) {
           try {
             await runAfterResponseHooks({
               input,
               request,
-              response: response.clone(),
-              options: context.options,
+              response,
+              options: context.hookContext.options,
             }, afterResponseHooks)
           } catch (error) {
-            await runOnErrorHooks({
-              input,
-              error,
-              options: context.options,
-              request,
-              response,
-            }, context._internalOptions.hooks.onError)
+            try {
+              await runOnErrorHooks({
+                input,
+                error,
+                options: context.hookContext.options,
+                request,
+                response,
+              }, context.normalizedOptions.hooks.onError)
+            } finally {
+              timeout.abort(
+                new DOMException('Response body abandoned', 'AbortError'),
+              )
+              cancelResponseBody(response)
+            }
             throw error
           }
         }
@@ -224,8 +231,8 @@ function createMethodCaller(
 async function runBeforeRequestHooks(
   context: ExecutionBeforeRequestContext,
 ): Promise<void> {
-  for (const hook of context._internalOptions.hooks.beforeRequest) {
-    await hook(context)
+  for (const hook of context.normalizedOptions.hooks.beforeRequest) {
+    await hook(context.hookContext)
   }
 }
 
@@ -234,7 +241,18 @@ async function runAfterResponseHooks(
   hooks: AfterResponseHook[],
 ): Promise<void> {
   for (const hook of hooks) {
-    await hook(context)
+    const hookResponse = context.response.clone()
+    try {
+      await hook({
+        ...context,
+        response: hookResponse,
+      })
+    } finally {
+      // Cancellation is initiated immediately but cannot be awaited here:
+      // cloned response bodies share a tee with the original body, so the
+      // cancellation promise may remain pending until the original settles.
+      cancelResponseBody(hookResponse)
+    }
   }
 }
 
@@ -270,11 +288,11 @@ async function waitForRetry(params: {
   context: ExecutionBeforeRequestContext
 }): Promise<void> {
   const { attempt, context } = params
-  const externalSignal = context._internalOptions.signal
+  const externalSignal = context.normalizedOptions.signal
 
   try {
     await sleep(
-      getRetryDelay(context._internalOptions.retry, attempt),
+      getRetryDelay(context.normalizedOptions.retry, attempt),
       externalSignal,
     )
   } catch (delayError) {
@@ -307,7 +325,7 @@ async function waitForRetryWithHandling(params: {
     const errorContext: ErrorContext = {
       input,
       error,
-      options: context.options,
+      options: context.hookContext.options,
       request,
     }
 
@@ -315,7 +333,7 @@ async function waitForRetryWithHandling(params: {
       errorContext.response = response
     }
 
-    await runOnErrorHooks(errorContext, context._internalOptions.hooks.onError)
+    await runOnErrorHooks(errorContext, context.normalizedOptions.hooks.onError)
     throw error
   }
 }
@@ -365,12 +383,12 @@ async function fetchWithHandling(params: {
     return await fetchImpl(request)
   } catch (error) {
     const normalized = normalizeExecutionError(
-      context._internalOptions.timeout !== undefined && timeout.didTimeout()
+      context.normalizedOptions.timeout !== undefined && timeout.didTimeout()
         ? {
             aborted: isRequestAbort(request.signal, error),
             abortReason: request.signal.reason,
             error,
-            timeout: context._internalOptions.timeout,
+            timeout: context.normalizedOptions.timeout,
           }
         : {
             aborted: isRequestAbort(request.signal, error),
@@ -382,8 +400,8 @@ async function fetchWithHandling(params: {
     if (
       shouldRetryError(
         normalized,
-        context._internalOptions.method,
-        context._internalOptions.retry,
+        context.normalizedOptions.method,
+        context.normalizedOptions.retry,
         attempt,
       )
     ) {
@@ -399,7 +417,7 @@ async function fetchWithHandling(params: {
     const errorContext: ErrorContext = {
       input,
       error: normalized,
-      options: context.options,
+      options: context.hookContext.options,
       request,
     }
 
@@ -409,7 +427,7 @@ async function fetchWithHandling(params: {
       errorContext.response = errorResponse
     }
 
-    await runOnErrorHooks(errorContext, context._internalOptions.hooks.onError)
+    await runOnErrorHooks(errorContext, context.normalizedOptions.hooks.onError)
 
     throw normalized
   }
@@ -429,11 +447,12 @@ async function parseWithHandling<T>(params: {
     !response.ok &&
     shouldRetryStatus(
       response,
-      context._internalOptions.method,
-      context._internalOptions.retry,
+      context.normalizedOptions.method,
+      context.normalizedOptions.retry,
       attempt,
     )
   ) {
+    timeout.abort(new DOMException('Response body abandoned', 'AbortError'))
     cancelResponseBody(response)
     await waitForRetryWithHandling({
       attempt,
@@ -455,17 +474,17 @@ async function parseWithHandling<T>(params: {
     return (await parseResponse<T>({
       request,
       response,
-      responseType: context._internalOptions.responseType,
-      parseJson: context._internalOptions.parseJson,
+      responseType: context.normalizedOptions.responseType,
+      parseJson: context.normalizedOptions.parseJson,
     })) as T | Response | string | Blob | ArrayBuffer | undefined
   } catch (error) {
     const normalized = normalizeExecutionError(
-      context._internalOptions.timeout !== undefined && timeout.didTimeout()
+      context.normalizedOptions.timeout !== undefined && timeout.didTimeout()
         ? {
             aborted: isRequestAbort(request.signal, error),
             abortReason: request.signal.reason,
             error,
-            timeout: context._internalOptions.timeout,
+            timeout: context.normalizedOptions.timeout,
           }
         : {
             aborted: isRequestAbort(request.signal, error),
@@ -477,8 +496,8 @@ async function parseWithHandling<T>(params: {
     if (
       shouldRetryError(
         normalized,
-        context._internalOptions.method,
-        context._internalOptions.retry,
+        context.normalizedOptions.method,
+        context.normalizedOptions.retry,
         attempt,
       )
     ) {
@@ -495,12 +514,12 @@ async function parseWithHandling<T>(params: {
     const errorContext: ErrorContext = {
       input,
       error: normalized,
-      options: context.options,
+      options: context.hookContext.options,
       request,
       response: normalized instanceof HttpError ? normalized.response : response,
     }
 
-    await runOnErrorHooks(errorContext, context._internalOptions.hooks.onError)
+    await runOnErrorHooks(errorContext, context.normalizedOptions.hooks.onError)
 
     throw normalized
   }

@@ -226,9 +226,10 @@ const api = createClient({
 `beforeRequest` hook failures, request-normalization failures, retry rebuild
 failures, and request-construction failures propagate as-is and are observable
 through `onError` before being re-thrown. Retry-backoff aborts are normalized to
-`AbortRequestError`, passed through `onError`, and re-thrown. `afterResponse`
-hooks receive a cloned `Response`, so reading the body there does not consume
-the response used for normal parsing or `HttpError` creation.
+`AbortRequestError`, passed through `onError`, and re-thrown. Each
+`afterResponse` hook receives its own cloned `Response`, so reading the body in
+one hook does not consume the response used by another hook, normal parsing, or
+`HttpError` creation.
 
 Hook scope is intentionally narrow:
 
@@ -239,7 +240,8 @@ Hook scope is intentionally narrow:
 Client hooks run before request hooks. Within each client or request hook list,
 hooks run in definition order.
 
-Cloned `afterResponse` inspection is intended for ordinary API payloads, not large streaming or heavy binary workflows.
+Cloned `afterResponse` inspection is intended for ordinary API payloads, not
+large streaming or heavy binary workflows.
 
 #### Safe diagnostic header logging
 
@@ -370,7 +372,7 @@ const user = User.parse(data)
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
 - Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`.
 - Hook, request-normalization, retry rebuild, and request-construction failures are not wrapped as `NetworkError`.
-- `afterResponse` receives a cloned `Response` for safe inspection.
+- Each `afterResponse` hook receives an independently readable cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
 - `beforeRequest` may override the URL only with a final absolute URL.
 - `beforeRequest` may mutate headers, but hook option metadata is read-only.

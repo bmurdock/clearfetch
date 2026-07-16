@@ -714,7 +714,8 @@ Permitted uses:
 
 Runs immediately after a response is received and before success parsing is returned to the consumer.
 
-`afterResponse` always receives the raw `Response`, including non-2xx responses that may later be classified as `HttpError`.
+Each `afterResponse` hook receives its own clone of the raw `Response`,
+including non-2xx responses that may later be classified as `HttpError`.
 
 Permitted uses:
 

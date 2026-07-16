@@ -139,6 +139,23 @@ test('createHookRequestOptions freezes query metadata and query arrays when quer
   assert.deepEqual(snapshot.query, query)
 })
 
+test('createHookRequestOptions preserves special query keys as own properties', () => {
+  const query = JSON.parse(
+    '{"__proto__":["admin","editor"],"constructor":"value"}',
+  ) as Exclude<NormalizedRequestOptions['query'], undefined>
+
+  const snapshot = createHookRequestOptions(
+    createOptions({ query }),
+    DEFAULT_METADATA,
+  )
+
+  assert.equal(Object.getPrototypeOf(snapshot.query), Object.prototype)
+  assert.equal(Object.hasOwn(snapshot.query ?? {}, '__proto__'), true)
+  assert.equal(Object.hasOwn(snapshot.query ?? {}, 'constructor'), true)
+  assert.deepEqual(snapshot.query?.['__proto__'], ['admin', 'editor'])
+  assert.equal(snapshot.query?.constructor, 'value')
+})
+
 test('createHookRequestOptions omits optional metadata keys when absent', () => {
   const snapshot = createHookRequestOptions(createOptions(), DEFAULT_METADATA)
 

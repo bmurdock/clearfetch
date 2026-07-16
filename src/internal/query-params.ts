@@ -13,7 +13,12 @@ export function snapshotQueryInput(query: QueryInput): QueryInput {
 
   const snapshot: QueryParams = {}
   for (const [key, value] of Object.entries(query)) {
-    snapshot[key] = Array.isArray(value) ? [...value] : value
+    Object.defineProperty(snapshot, key, {
+      configurable: true,
+      enumerable: true,
+      value: Array.isArray(value) ? [...value] : value,
+      writable: true,
+    })
   }
   return snapshot
 }

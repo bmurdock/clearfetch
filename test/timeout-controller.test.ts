@@ -6,12 +6,25 @@ import {
   sleep,
 } from '../src/internal/timeout-controller.js'
 
-test('createTimeoutController returns no signal when no abort inputs exist', () => {
+test('createTimeoutController creates an attempt signal without user abort inputs', () => {
   const timeout = createTimeoutController()
 
-  assert.equal(timeout.signal, undefined)
+  assert.equal(timeout.signal.aborted, false)
   assert.equal(timeout.didTimeout(), false)
   assert.doesNotThrow(() => timeout.cleanup())
+})
+
+test('createTimeoutController may abort an abandoned attempt', () => {
+  const timeout = createTimeoutController()
+  const reason = new DOMException('Response body abandoned', 'AbortError')
+
+  timeout.abort(reason)
+
+  assert.equal(timeout.signal.aborted, true)
+  assert.equal(timeout.signal.reason, reason)
+  assert.equal(timeout.didTimeout(), false)
+
+  timeout.cleanup()
 })
 
 test('createTimeoutController propagates external aborts without timeout state', () => {

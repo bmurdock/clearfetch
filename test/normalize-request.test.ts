@@ -12,7 +12,8 @@ import {
   resolveRequestURL,
   serializeQueryParams,
 } from '../src/internal/normalize-request.js'
-import type { RequestOptions } from '../src/types.js'
+import { snapshotQueryInput } from '../src/internal/query-params.js'
+import type { QueryParams, RequestOptions } from '../src/types.js'
 
 test('serializeQueryParams repeats array keys and skips undefined', () => {
   const query = serializeQueryParams({
@@ -42,6 +43,21 @@ test('serializeQueryParams accepts URLSearchParams values across realm boundarie
     serializeQueryParams(query as URLSearchParams),
     'tag=a&page=1&tag=b',
   )
+})
+
+test('snapshotQueryInput preserves special keys as own data properties', () => {
+  const query = JSON.parse(
+    '{"__proto__":["admin","editor"],"constructor":"value"}',
+  ) as QueryParams
+
+  const snapshot = snapshotQueryInput(query) as QueryParams
+
+  assert.equal(Object.getPrototypeOf(snapshot), Object.prototype)
+  assert.equal(Object.hasOwn(snapshot, '__proto__'), true)
+  assert.equal(Object.hasOwn(snapshot, 'constructor'), true)
+  assert.deepEqual(snapshot['__proto__'], ['admin', 'editor'])
+  assert.notEqual(snapshot['__proto__'], query['__proto__'])
+  assert.equal(snapshot.constructor, 'value')
 })
 
 test('resolveRequestURL appends URLSearchParams query input', () => {
@@ -91,12 +107,15 @@ test('createBeforeRequestContext resolves relative input with baseURL and merges
   )
 
   assert.equal(
-    context.url.toString(),
+    context.hookContext.url.toString(),
     'https://api.example.com/users?page=2&tags=design&tags=types',
   )
-  assert.equal(context.headers.get('accept'), 'application/vnd.clearfetch+json')
-  assert.equal(context.options.method, 'GET')
-  assert.deepEqual(context.options.query, {
+  assert.equal(
+    context.hookContext.headers.get('accept'),
+    'application/vnd.clearfetch+json',
+  )
+  assert.equal(context.hookContext.options.method, 'GET')
+  assert.deepEqual(context.hookContext.options.query, {
     page: 2,
     tags: ['design', 'types'],
   })
@@ -392,7 +411,7 @@ test('createBeforeRequestContext does not snapshot bodies for a single attempt',
     },
   )
 
-  assert.equal(context.body, body)
+  assert.equal(context.hookContext.body, body)
 })
 
 test('createBeforeRequestContext does not snapshot bodies for retry-ineligible methods', () => {
@@ -410,8 +429,8 @@ test('createBeforeRequestContext does not snapshot bodies for retry-ineligible m
     },
   )
 
-  assert.equal(context.body, body)
-  assert.equal(context.options.maxAttempts, 1)
+  assert.equal(context.hookContext.body, body)
+  assert.equal(context.hookContext.options.maxAttempts, 1)
 })
 
 test('buildRequestFromContext supports streams for retry-ineligible methods', () => {
@@ -428,8 +447,8 @@ test('buildRequestFromContext supports streams for retry-ineligible methods', ()
     },
   )
 
-  assert.equal(context.body, body)
-  assert.equal(context.options.maxAttempts, 1)
+  assert.equal(context.hookContext.body, body)
+  assert.equal(context.hookContext.options.maxAttempts, 1)
   assert.doesNotThrow(() => buildRequestFromContext(context))
 })
 
@@ -450,7 +469,7 @@ test('createBeforeRequestContext snapshots ArrayBuffer bodies across realms', as
     },
   )
 
-  assert.notEqual(context.body, body)
+  assert.notEqual(context.hookContext.body, body)
   new Uint8Array(body).set([88, 89, 90])
   assert.equal(await buildRequestFromContext(context).text(), 'ABC')
 })
@@ -476,10 +495,10 @@ test('createBeforeRequestContext snapshots FormData bodies across realms', () =>
       },
     )
 
-    assert.notEqual(context.body, body)
+    assert.notEqual(context.hookContext.body, body)
     foreignBody.append('value', 'mutated')
     assert.deepEqual(
-      [...FormData.prototype.entries.call(context.body as FormData)],
+      [...FormData.prototype.entries.call(context.hookContext.body as FormData)],
       [['value', 'original']],
     )
   } finally {
@@ -508,7 +527,7 @@ test('createBeforeRequestContext preserves FormData file contents and metadata',
     },
   )
 
-  const file = (context.body as FormData).get('file')
+  const file = (context.hookContext.body as FormData).get('file')
   assert.ok(file instanceof Blob)
   assert.equal((file as Blob & { name?: string }).name, 'example.txt')
   assert.equal(file.type, 'text/plain')
@@ -564,7 +583,10 @@ test('buildRequestFromContext serializes json and sets content-type when absent'
   const request = buildRequestFromContext(context)
 
   assert.equal(request.headers.get('content-type'), 'application/json')
-  assert.equal(context.body, JSON.stringify({ name: 'Brian' }))
+  assert.equal(
+    context.hookContext.body,
+    JSON.stringify({ name: 'Brian' }),
+  )
 })
 
 test('createBeforeRequestContext rejects json values that serialize to undefined', () => {
@@ -627,7 +649,7 @@ test('createBeforeRequestContext wraps json serialization failures as ConfigErro
 test('buildRequestFromContext rejects invalid hook URL overrides', () => {
   const context = createBeforeRequestContext('https://api.example.com/users')
 
-  ;(context as { url: unknown }).url = '/relative'
+  ;(context.hookContext as { url: unknown }).url = '/relative'
 
   assert.throws(
     () => buildRequestFromContext(context),

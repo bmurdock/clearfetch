@@ -857,20 +857,26 @@ test('retryable HTTP responses do not read body text before retrying', async () 
   )
 })
 
-test('retryable HTTP responses cancel abandoned response bodies', async () => {
+test('retryable HTTP responses cancel bodies after observational response hooks', async () => {
   let attempts = 0
-  let cancelCalls = 0
+  let abandonedAttempts = 0
 
-  const fetchImpl: typeof fetch = async () => {
+  const fetchImpl: typeof fetch = async (input) => {
     attempts += 1
 
     if (attempts === 1) {
       return new Response(new ReadableStream({
-        cancel() {
-          cancelCalls += 1
-        },
         start(controller) {
           controller.enqueue(new TextEncoder().encode('retry'))
+          const request = input as Request
+          request.signal.addEventListener(
+            'abort',
+            () => {
+              abandonedAttempts += 1
+              controller.error(request.signal.reason)
+            },
+            { once: true },
+          )
         },
       }), {
         status: 503,
@@ -885,6 +891,9 @@ test('retryable HTTP responses cancel abandoned response bodies', async () => {
     const result = await request<{ ok: boolean }>(
       'https://api.example.com/users',
       {
+        hooks: {
+          afterResponse: [() => undefined],
+        },
         retry: {
           attempts: 2,
           backoffMs: 1,
@@ -897,7 +906,7 @@ test('retryable HTTP responses cancel abandoned response bodies', async () => {
     )
 
     assert.deepEqual(result, { ok: true })
-    assert.equal(cancelCalls, 1)
+    assert.equal(abandonedAttempts, 1)
   })
 })
 
@@ -1268,6 +1277,49 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
   )
 })
 
+test('afterResponse hook failures cancel the abandoned response body', async () => {
+  let abandonedAttempts = 0
+
+  await withMockedFetch(
+    async (input) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('response'))
+            const request = input as Request
+            request.signal.addEventListener(
+              'abort',
+              () => {
+                abandonedAttempts += 1
+                controller.error(request.signal.reason)
+              },
+              { once: true },
+            )
+          },
+        }),
+      ),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async () => {
+              throw new Error('afterResponse failure')
+            },
+          ],
+        },
+      })
+
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof Error && error.message === 'afterResponse failure',
+      )
+
+      assert.equal(abandonedAttempts, 1)
+    },
+  )
+})
+
 test('onError observes request construction failures as thrown', async () => {
   const observedErrors: unknown[] = []
 
@@ -1386,6 +1438,35 @@ test('afterResponse may read the response body without breaking json parsing', a
   )
 })
 
+test('afterResponse hooks receive independently readable response bodies', async () => {
+  const seenBodies: string[] = []
+
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async (context) => {
+              seenBodies.push(await context.response.text())
+            },
+            async (context) => {
+              seenBodies.push(await context.response.text())
+            },
+          ],
+        },
+      })
+
+      const result = await client.get<{ ok: boolean }>(
+        'https://api.example.com/users',
+      )
+
+      assert.deepEqual(seenBodies, ['{"ok":true}', '{"ok":true}'])
+      assert.deepEqual(result, { ok: true })
+    },
+  )
+})
+
 test('beforeRequest cannot mutate execution options through context.options', async () => {
   await withMockedFetch(
     async () => new Response(JSON.stringify({ ok: true })),
@@ -1404,6 +1485,35 @@ test('beforeRequest cannot mutate execution options through context.options', as
         () => client.get('https://api.example.com/users'),
         (error) => error instanceof TypeError,
       )
+    },
+  )
+})
+
+test('beforeRequest hook contexts do not expose internal execution state', async () => {
+  let hasInternalOptions = true
+  let contextKeys: string[] = []
+
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              hasInternalOptions = Object.hasOwn(context, '_internalOptions')
+              contextKeys = Object.keys(context)
+            },
+          ],
+        },
+      })
+
+      const result = await client.get<{ ok: boolean }>(
+        'https://api.example.com/users',
+      )
+
+      assert.equal(hasInternalOptions, false)
+      assert.equal(contextKeys.includes('_internalOptions'), false)
+      assert.deepEqual(result, { ok: true })
     },
   )
 })

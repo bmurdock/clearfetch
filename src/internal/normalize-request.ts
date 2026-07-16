@@ -37,8 +37,9 @@ const RESPONSE_TYPES = new Set<ResponseType>([
 
 const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text)
 
-export interface ExecutionBeforeRequestContext extends BeforeRequestContext {
-  _internalOptions: NormalizedRequestOptions
+export interface ExecutionBeforeRequestContext {
+  readonly hookContext: BeforeRequestContext
+  readonly normalizedOptions: NormalizedRequestOptions
 }
 
 export interface BeforeRequestContextSnapshot {
@@ -85,26 +86,27 @@ export function createBeforeRequestContext(
 export function snapshotBeforeRequestContext(
   context: ExecutionBeforeRequestContext,
 ): BeforeRequestContextSnapshot {
-  const options = cloneNormalizedRequestOptions(context._internalOptions)
+  const { hookContext } = context
+  const options = cloneNormalizedRequestOptions(context.normalizedOptions)
 
   delete options.json
-  if (context.body !== undefined) {
+  if (hookContext.body !== undefined) {
     options.body =
       options.hooks.beforeRequest.length === 0
-        ? context.body
-        : snapshotRequestBody(context.body)
+        ? hookContext.body
+        : snapshotRequestBody(hookContext.body)
   } else {
     delete options.body
   }
 
   const snapshot: BeforeRequestContextSnapshot = {
-    input: cloneRequestInput(context.input),
-    url: new URL(context.url),
+    input: cloneRequestInput(hookContext.input),
+    url: new URL(hookContext.url),
     options,
   }
 
-  if (context.options.queryString !== undefined) {
-    snapshot.queryString = context.options.queryString
+  if (hookContext.options.queryString !== undefined) {
+    snapshot.queryString = hookContext.options.queryString
   }
 
   return snapshot
@@ -151,18 +153,17 @@ function createExecutionBeforeRequestContext(params: {
     ...(queryString === '' ? {} : { queryString }),
   })
 
-  const context: ExecutionBeforeRequestContext = {
+  const hookContext: BeforeRequestContext = {
     input,
     url,
     headers: normalized.headers,
-    _internalOptions: normalized,
     options: optionsView,
   }
 
   if (body !== undefined) {
-    // `body` remains readable to hooks, but execution uses `_internalOptions`
-    // so hook metadata cannot silently rewrite normalized behavior.
-    Object.defineProperty(context, 'body', {
+    // `body` remains readable to hooks, while execution keeps normalized
+    // behavior in the separate internal context record.
+    Object.defineProperty(hookContext, 'body', {
       configurable: false,
       enumerable: true,
       value: body,
@@ -170,14 +171,17 @@ function createExecutionBeforeRequestContext(params: {
     })
   }
 
-  Object.defineProperty(context, 'options', {
+  Object.defineProperty(hookContext, 'options', {
     configurable: false,
     enumerable: true,
     value: optionsView,
     writable: false,
   })
 
-  return context
+  return Object.freeze({
+    hookContext,
+    normalizedOptions: normalized,
+  })
 }
 
 function cloneNormalizedRequestOptions(
@@ -234,29 +238,31 @@ export function buildRequestFromContext(
   context: ExecutionBeforeRequestContext,
   signal?: AbortSignal,
 ): Request {
-  if (!(context.url instanceof URL)) {
+  const { hookContext, normalizedOptions } = context
+
+  if (!(hookContext.url instanceof URL)) {
     throw new ConfigError('beforeRequest URL overrides must be absolute URLs')
   }
 
   const init: RequestInit = {
-    method: context._internalOptions.method,
-    headers: context.headers,
+    method: normalizedOptions.method,
+    headers: hookContext.headers,
   }
 
-  if (context.body !== undefined) {
-    init.body = context.body
-    if (isReadableStream(context.body)) {
+  if (hookContext.body !== undefined) {
+    init.body = hookContext.body
+    if (isReadableStream(hookContext.body)) {
       Object.assign(init, { duplex: 'half' as const })
     }
   }
 
   if (signal !== undefined) {
     init.signal = signal
-  } else if (context._internalOptions.signal !== undefined) {
-    init.signal = context._internalOptions.signal
+  } else if (normalizedOptions.signal !== undefined) {
+    init.signal = normalizedOptions.signal
   }
 
-  return new Request(context.url, init)
+  return new Request(hookContext.url, init)
 }
 
 export function normalizeRequestOptions(

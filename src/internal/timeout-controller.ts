@@ -1,15 +1,9 @@
 export function createTimeoutController(signal?: AbortSignal, timeout?: number): {
+  abort: (reason?: unknown) => void
   cleanup: () => void
   didTimeout: () => boolean
-  signal?: AbortSignal
+  signal: AbortSignal
 } {
-  if (signal === undefined && timeout === undefined) {
-    return {
-      cleanup: () => undefined,
-      didTimeout: () => false,
-    }
-  }
-
   const controller = new AbortController()
   let timedOut = false
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -42,6 +36,10 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
   return {
     signal: controller.signal,
     didTimeout: () => timedOut,
+    abort: (reason?: unknown) => {
+      clearTimeoutId()
+      controller.abort(reason)
+    },
     cleanup: () => {
       clearTimeoutId()
 
