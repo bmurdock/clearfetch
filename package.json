@@ -28,7 +28,7 @@
     "check:publish-dry-run": "node scripts/check-publish-dry-run.mjs",
     "lint": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
-    "test:browser-like": "tsx --test test/browser-like.test.ts",
+    "test:browser-like": "tsx --test test/browser-like.browser.ts",
     "test:browser-real": "npm run build && tsx --test test/browser-real.browser.ts",
     "test:types-compat": "npm run build && node node_modules/typescript-compat/bin/tsc -p test/tsconfig.types-compat.json"
   },

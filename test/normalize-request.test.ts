@@ -2,8 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 
-import { Window } from 'happy-dom'
-
 import { ConfigError } from '../src/errors.js'
 import {
   buildRequestFromContext,
@@ -474,38 +472,6 @@ test('createBeforeRequestContext snapshots ArrayBuffer bodies across realms', as
   assert.equal(await buildRequestFromContext(context).text(), 'ABC')
 })
 
-test('createBeforeRequestContext snapshots FormData bodies across realms', () => {
-  const window = new Window()
-
-  try {
-    const foreignBody = new window.FormData()
-    foreignBody.append('value', 'original')
-    const body = foreignBody as unknown as FormData
-
-    const context = createBeforeRequestContext(
-      'https://api.example.com/users',
-      {},
-      {
-        method: 'POST',
-        body,
-        retry: {
-          attempts: 2,
-          retryOnMethods: ['POST'],
-        },
-      },
-    )
-
-    assert.notEqual(context.hookContext.body, body)
-    foreignBody.append('value', 'mutated')
-    assert.deepEqual(
-      [...FormData.prototype.entries.call(context.hookContext.body as FormData)],
-      [['value', 'original']],
-    )
-  } finally {
-    window.close()
-  }
-})
-
 test('createBeforeRequestContext preserves FormData file contents and metadata', async () => {
   const body = new FormData()
   body.append(
@@ -532,40 +498,6 @@ test('createBeforeRequestContext preserves FormData file contents and metadata',
   assert.equal((file as Blob & { name?: string }).name, 'example.txt')
   assert.equal(file.type, 'text/plain')
   assert.equal(await file.text(), 'ABC')
-})
-
-test('createBeforeRequestContext rejects uncloneable foreign FormData files', () => {
-  const window = new Window()
-
-  try {
-    const body = new window.FormData()
-    body.append(
-      'file',
-      new window.File(['ABC'], 'example.txt', { type: 'text/plain' }),
-    )
-
-    assert.throws(
-      () =>
-        createBeforeRequestContext(
-          'https://api.example.com/users',
-          {},
-          {
-            method: 'POST',
-            body: body as unknown as FormData,
-            retry: {
-              attempts: 2,
-              retryOnMethods: ['POST'],
-            },
-          },
-        ),
-      (error) =>
-        error instanceof ConfigError &&
-        error.message ===
-          'Retry is not supported for FormData files that cannot be cloned safely',
-    )
-  } finally {
-    window.close()
-  }
 })
 
 test('buildRequestFromContext serializes json and sets content-type when absent', () => {
