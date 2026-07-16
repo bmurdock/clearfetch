@@ -24,7 +24,7 @@ test('normalizeRetry applies DEFAULT_RETRY values', () => {
   })
 })
 
-test('normalizeRetry preserves retry array references', () => {
+test('normalizeRetry snapshots retry arrays', () => {
   const retryOnStatuses = [503]
   const retryOnMethods: RetryOptions['retryOnMethods'] = ['GET']
 
@@ -34,16 +34,20 @@ test('normalizeRetry preserves retry array references', () => {
   })
 
   assert.ok(retry !== false)
-  assert.equal(retry.retryOnStatuses, retryOnStatuses)
-  assert.equal(retry.retryOnMethods, retryOnMethods)
+  assert.notEqual(retry.retryOnStatuses, retryOnStatuses)
+  assert.notEqual(retry.retryOnMethods, retryOnMethods)
+  assert.deepEqual(retry.retryOnStatuses, retryOnStatuses)
+  assert.deepEqual(retry.retryOnMethods, retryOnMethods)
 
   const defaultRetry = normalizeRetry(undefined, {
     attempts: 2,
   })
 
   assert.ok(defaultRetry !== false)
-  assert.equal(defaultRetry.retryOnStatuses, DEFAULT_RETRY.retryOnStatuses)
-  assert.equal(defaultRetry.retryOnMethods, DEFAULT_RETRY.retryOnMethods)
+  assert.notEqual(defaultRetry.retryOnStatuses, DEFAULT_RETRY.retryOnStatuses)
+  assert.notEqual(defaultRetry.retryOnMethods, DEFAULT_RETRY.retryOnMethods)
+  assert.deepEqual(defaultRetry.retryOnStatuses, DEFAULT_RETRY.retryOnStatuses)
+  assert.deepEqual(defaultRetry.retryOnMethods, DEFAULT_RETRY.retryOnMethods)
 })
 
 test('normalizeRetry rejects invalid attempts with existing message', () => {

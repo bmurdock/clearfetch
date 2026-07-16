@@ -60,8 +60,12 @@ function buildRetry(source: RetryOptions): Required<RetryOptions> {
     backoffMs: source.backoffMs ?? DEFAULT_RETRY.backoffMs,
     maxBackoffMs: source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs,
     multiplier: source.multiplier ?? DEFAULT_RETRY.multiplier,
-    retryOnStatuses: source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses,
-    retryOnMethods: source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods,
+    retryOnStatuses: [
+      ...(source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses),
+    ],
+    retryOnMethods: [
+      ...(source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods),
+    ],
   }
 }
 
@@ -132,6 +136,17 @@ export function shouldRetryError(
   }
 
   return error instanceof NetworkError
+}
+
+export function getEffectiveRetryAttempts(
+  method: RequestMethod,
+  retry: false | Required<RetryOptions>,
+): number {
+  if (retry === false || !retry.retryOnMethods.includes(method)) {
+    return 1
+  }
+
+  return retry.attempts
 }
 
 export function shouldRetryStatus(

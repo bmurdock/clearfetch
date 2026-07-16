@@ -12,6 +12,7 @@ import type {
   OnErrorHook,
   RequestMethod,
   RequestOptions,
+  ResponseType,
 } from '../types.js'
 import {
   mergeClientDefaults,
@@ -21,11 +22,14 @@ import { normalizeExecutionError } from './normalize-error.js'
 import {
   buildRequestFromContext,
   createBeforeRequestContext,
+  createBeforeRequestContextFromSnapshot,
+  snapshotBeforeRequestContext,
   type ExecutionBeforeRequestContext,
 } from './normalize-request.js'
 import { normalizeOnErrorHooks } from './hooks.js'
 import { parseResponse } from './parse-response.js'
 import {
+  getEffectiveRetryAttempts,
   getRetryDelay,
   shouldRetryError,
   shouldRetryStatus,
@@ -65,10 +69,12 @@ export async function executeRequest<T = unknown>(
     throw error
   }
 
-  const maxAttempts =
-    initialContext._internalOptions.retry === false
-      ? 1
-      : initialContext._internalOptions.retry.attempts
+  const maxAttempts = getEffectiveRetryAttempts(
+    initialContext._internalOptions.method,
+    initialContext._internalOptions.retry,
+  )
+  const contextSnapshot =
+    maxAttempts === 1 ? undefined : snapshotBeforeRequestContext(initialContext)
 
   let lastError: HttpClientError | undefined
 
@@ -78,7 +84,10 @@ export async function executeRequest<T = unknown>(
       context = initialContext
     } else {
       try {
-        context = createBeforeRequestContext(input, defaults, options, attempt)
+        if (contextSnapshot === undefined) {
+          throw new ConfigError('Retry context snapshot is unavailable')
+        }
+        context = createBeforeRequestContextFromSnapshot(contextSnapshot, attempt)
       } catch (error) {
         await runOnErrorHooks({
           input,
@@ -176,7 +185,9 @@ export async function executeRequest<T = unknown>(
   throw lastError ?? new ConfigError('Request execution ended without a result')
 }
 
-export function createClient(defaults: ClientDefaults = {}): HttpClient {
+export function createClient(
+  defaults: ClientDefaults = {},
+): HttpClient<ResponseType> {
   // Snapshot defaults once so client behavior does not drift if caller-owned
   // objects are mutated after client creation.
   const frozenDefaults = snapshotClientDefaults(defaults)
@@ -193,13 +204,13 @@ export function createClient(defaults: ClientDefaults = {}): HttpClient {
     options: createMethodCaller(frozenDefaults, 'OPTIONS'),
     extend: (childDefaults: ClientDefaults) =>
       createClient(mergeClientDefaults(frozenDefaults, childDefaults)),
-  }
+  } as HttpClient<ResponseType>
 }
 
 function createMethodCaller(
   defaults: ClientDefaults,
   method: RequestMethod,
-): HttpClient['get'] {
+): HttpClient<ResponseType>['get'] {
   return <T = unknown>(
     input: string | URL,
     options: RequestOptions = {},
@@ -281,6 +292,34 @@ async function waitForRetry(params: {
   }
 }
 
+async function waitForRetryWithHandling(params: {
+  attempt: number
+  context: ExecutionBeforeRequestContext
+  input: string | URL
+  request: Request
+  response?: Response
+}): Promise<void> {
+  const { attempt, context, input, request, response } = params
+
+  try {
+    await waitForRetry({ attempt, context })
+  } catch (error) {
+    const errorContext: ErrorContext = {
+      input,
+      error,
+      options: context.options,
+      request,
+    }
+
+    if (response !== undefined) {
+      errorContext.response = response
+    }
+
+    await runOnErrorHooks(errorContext, context._internalOptions.hooks.onError)
+    throw error
+  }
+}
+
 function isSignalAbortReason(signal: AbortSignal, error: unknown): boolean {
   return signal.aborted && Object.is(error, signal.reason)
 }
@@ -348,7 +387,12 @@ async function fetchWithHandling(params: {
         attempt,
       )
     ) {
-      await waitForRetry({ attempt, context })
+      await waitForRetryWithHandling({
+        attempt,
+        context,
+        input,
+        request,
+      })
       throw new RetrySignal(normalized)
     }
 
@@ -391,7 +435,13 @@ async function parseWithHandling<T>(params: {
     )
   ) {
     cancelResponseBody(response)
-    await waitForRetry({ attempt, context })
+    await waitForRetryWithHandling({
+      attempt,
+      context,
+      input,
+      request,
+      response,
+    })
 
     throw new RetrySignal(new HttpError({
       status: response.status,
@@ -432,7 +482,13 @@ async function parseWithHandling<T>(params: {
         attempt,
       )
     ) {
-      await waitForRetry({ attempt, context })
+      await waitForRetryWithHandling({
+        attempt,
+        context,
+        input,
+        request,
+        response,
+      })
       throw new RetrySignal(normalized)
     }
 

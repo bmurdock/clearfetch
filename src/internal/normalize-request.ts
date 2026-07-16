@@ -3,16 +3,29 @@ import type {
   BeforeRequestContext,
   ClientDefaults,
   NormalizedRequestOptions,
-  PrimitiveQueryValue,
   QueryInput,
-  QueryParams,
   RequestMethod,
   RequestOptions,
   ResponseType,
 } from '../types.js'
 import { mergeHooks } from './hooks.js'
 import { createHookRequestOptions } from './hook-options.js'
-import { REQUEST_METHODS, normalizeRetry } from './retry-policy.js'
+import {
+  isReadableStream,
+  snapshotRequestBody,
+} from './platform-values.js'
+import {
+  applyQueryString,
+  serializeQueryParams,
+  serializeValidatedQueryParams,
+  snapshotQueryInput,
+  validateQueryInput,
+} from './query-params.js'
+import {
+  getEffectiveRetryAttempts,
+  REQUEST_METHODS,
+  normalizeRetry,
+} from './retry-policy.js'
 
 const RESPONSE_TYPES = new Set<ResponseType>([
   'json',
@@ -28,6 +41,13 @@ export interface ExecutionBeforeRequestContext extends BeforeRequestContext {
   _internalOptions: NormalizedRequestOptions
 }
 
+export interface BeforeRequestContextSnapshot {
+  input: string | URL
+  url: URL
+  options: NormalizedRequestOptions
+  queryString?: string
+}
+
 export function createBeforeRequestContext(
   input: string | URL,
   defaults: ClientDefaults = {},
@@ -41,9 +61,90 @@ export function createBeforeRequestContext(
     defaults.baseURL,
     queryString,
   )
-  const body = resolveRequestBody(normalized)
-  validateRetryableBody(body, normalized.retry)
-  const maxAttempts = normalized.retry === false ? 1 : normalized.retry.attempts
+  const resolvedBody = resolveRequestBody(normalized)
+  const maxAttempts = getEffectiveRetryAttempts(
+    normalized.method,
+    normalized.retry,
+  )
+  validateRetryableBody(resolvedBody, maxAttempts)
+  const body =
+    maxAttempts === 1 || resolvedBody === undefined
+      ? resolvedBody
+      : snapshotRequestBody(resolvedBody)
+
+  return createExecutionBeforeRequestContext({
+    attempt,
+    body,
+    input,
+    normalized,
+    queryString,
+    url,
+  })
+}
+
+export function snapshotBeforeRequestContext(
+  context: ExecutionBeforeRequestContext,
+): BeforeRequestContextSnapshot {
+  const options = cloneNormalizedRequestOptions(context._internalOptions)
+
+  delete options.json
+  if (context.body !== undefined) {
+    options.body =
+      options.hooks.beforeRequest.length === 0
+        ? context.body
+        : snapshotRequestBody(context.body)
+  } else {
+    delete options.body
+  }
+
+  const snapshot: BeforeRequestContextSnapshot = {
+    input: cloneRequestInput(context.input),
+    url: new URL(context.url),
+    options,
+  }
+
+  if (context.options.queryString !== undefined) {
+    snapshot.queryString = context.options.queryString
+  }
+
+  return snapshot
+}
+
+export function createBeforeRequestContextFromSnapshot(
+  snapshot: BeforeRequestContextSnapshot,
+  attempt: number,
+): ExecutionBeforeRequestContext {
+  const normalized = cloneNormalizedRequestOptions(snapshot.options)
+  if (
+    normalized.body !== undefined &&
+    normalized.hooks.beforeRequest.length > 0
+  ) {
+    normalized.body = snapshotRequestBody(normalized.body)
+  }
+
+  return createExecutionBeforeRequestContext({
+    attempt,
+    body: normalized.body,
+    input: cloneRequestInput(snapshot.input),
+    normalized,
+    queryString: snapshot.queryString ?? '',
+    url: new URL(snapshot.url),
+  })
+}
+
+function createExecutionBeforeRequestContext(params: {
+  attempt: number
+  body: BodyInit | null | undefined
+  input: string | URL
+  normalized: NormalizedRequestOptions
+  queryString: string
+  url: URL
+}): ExecutionBeforeRequestContext {
+  const { attempt, body, input, normalized, queryString, url } = params
+  const maxAttempts = getEffectiveRetryAttempts(
+    normalized.method,
+    normalized.retry,
+  )
   const optionsView = createHookRequestOptions(normalized, {
     attempt,
     maxAttempts,
@@ -79,6 +180,56 @@ export function createBeforeRequestContext(
   return context
 }
 
+function cloneNormalizedRequestOptions(
+  options: NormalizedRequestOptions,
+): NormalizedRequestOptions {
+  const snapshot: NormalizedRequestOptions = {
+    method: options.method,
+    headers: new Headers(options.headers),
+    responseType: options.responseType,
+    retry:
+      options.retry === false
+        ? false
+        : {
+            ...options.retry,
+            retryOnStatuses: [...options.retry.retryOnStatuses],
+            retryOnMethods: [...options.retry.retryOnMethods],
+          },
+    hooks: {
+      beforeRequest: [...options.hooks.beforeRequest],
+      afterResponse: [...options.hooks.afterResponse],
+      onError: [...options.hooks.onError],
+    },
+    parseJson: options.parseJson,
+  }
+
+  if (options.query !== undefined) {
+    snapshot.query = snapshotQueryInput(options.query)
+  }
+
+  if (options.body !== undefined) {
+    snapshot.body = options.body
+  }
+
+  if (Object.hasOwn(options, 'json')) {
+    snapshot.json = options.json
+  }
+
+  if (options.timeout !== undefined) {
+    snapshot.timeout = options.timeout
+  }
+
+  if (options.signal !== undefined) {
+    snapshot.signal = options.signal
+  }
+
+  return snapshot
+}
+
+function cloneRequestInput(input: string | URL): string | URL {
+  return typeof input === 'string' ? input : new URL(String(input))
+}
+
 export function buildRequestFromContext(
   context: ExecutionBeforeRequestContext,
   signal?: AbortSignal,
@@ -94,6 +245,9 @@ export function buildRequestFromContext(
 
   if (context.body !== undefined) {
     init.body = context.body
+    if (isReadableStream(context.body)) {
+      Object.assign(init, { duplex: 'half' as const })
+    }
   }
 
   if (signal !== undefined) {
@@ -195,65 +349,7 @@ function resolveRequestURLWithQueryString(
   return url
 }
 
-export function serializeQueryParams(query?: QueryInput): string {
-  if (query === undefined) {
-    return ''
-  }
-
-  validateQueryInput(query)
-  return serializeValidatedQueryParams(query)
-}
-
-function serializeValidatedQueryParams(query?: QueryInput): string {
-  if (query === undefined) {
-    return ''
-  }
-
-  if (isURLSearchParams(query)) {
-    return URLSearchParams.prototype.toString.call(query)
-  }
-
-  const params = new URLSearchParams()
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value === undefined) {
-      continue
-    }
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        params.append(key, serializeScalarQueryValue(item))
-      }
-      continue
-    }
-
-    params.append(key, serializeScalarQueryValue(value))
-  }
-
-  return params.toString()
-}
-
-function applyQueryString(url: URL, queryString: string): void {
-  if (queryString === '') {
-    return
-  }
-
-  const suffix = url.search === '' ? queryString : `&${queryString}`
-  url.search += suffix
-}
-
-function isURLSearchParams(value: unknown): value is URLSearchParams {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-
-  try {
-    URLSearchParams.prototype.toString.call(value)
-    return true
-  } catch {
-    return false
-  }
-}
+export { serializeQueryParams } from './query-params.js'
 
 function mergeHeaders(
   defaultHeaders?: HeadersInit,
@@ -365,87 +461,16 @@ function resolveRequestBody(
   }
 }
 
-function serializeScalarQueryValue(
-  value: PrimitiveQueryValue,
-): string {
-  if (value === null) {
-    return 'null'
-  }
-
-  return String(value)
-}
-
-function validateQueryParams(query: QueryParams): void {
-  for (const [key, value] of Object.entries(query)) {
-    validateQueryValue(key, value)
-  }
-}
-
-function validateQueryInput(query: unknown): asserts query is QueryInput {
-  if (isURLSearchParams(query)) {
-    return
-  }
-
-  if (!isQueryParamsRecord(query)) {
-    throw new ConfigError('`query` must be a record or URLSearchParams')
-  }
-
-  validateQueryParams(query)
-}
-
-function isQueryParamsRecord(value: unknown): value is QueryParams {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false
-  }
-
-  try {
-    return Object.prototype.toString.call(value) === '[object Object]'
-  } catch {
-    return false
-  }
-}
-
-function validateQueryValue(key: string, value: QueryParams[string]): void {
-  if (value === undefined) {
-    return
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      validateQueryScalarValue(key, item)
-    }
-    return
-  }
-
-  validateQueryScalarValue(key, value)
-}
-
-function validateQueryScalarValue(key: string, value: unknown): void {
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return
-  }
-
-  throw new ConfigError(
-    `Unsupported query value for \`${key}\`; only string, number, boolean, null, arrays, and undefined are allowed`,
-  )
-}
-
 function validateRetryableBody(
   body: BodyInit | null | undefined,
-  retry: NormalizedRequestOptions['retry'],
+  maxAttempts: number,
 ): void {
-  if (retry === false || body === undefined || body === null) {
+  if (maxAttempts === 1 || body === undefined || body === null) {
     return
   }
 
   if (
-    typeof ReadableStream !== 'undefined' &&
-    body instanceof ReadableStream
+    isReadableStream(body)
   ) {
     throw new ConfigError(
       'Retry is not supported for streaming request bodies',

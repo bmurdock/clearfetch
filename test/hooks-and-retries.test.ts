@@ -600,7 +600,7 @@ test('beforeRequest hooks can inspect serialized query metadata', async () => {
   }
 })
 
-test('retry attempts rebuild POST json bodies after the first attempt', async () => {
+test('retry attempts reuse one serialized POST json body', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0
   let stringifyCalls = 0
@@ -609,7 +609,7 @@ test('retry attempts rebuild POST json bodies after the first attempt', async ()
   const payload = {
     toJSON() {
       stringifyCalls += 1
-      return { ok: true }
+      return { serialization: stringifyCalls }
     },
   }
 
@@ -644,69 +644,167 @@ test('retry attempts rebuild POST json bodies after the first attempt', async ()
 
     assert.deepEqual(result, { ok: true })
     assert.equal(attempts, 2)
-    assert.equal(stringifyCalls, 2)
-    assert.deepEqual(seenBodies, ['{"ok":true}', '{"ok":true}'])
+    assert.equal(stringifyCalls, 1)
+    assert.deepEqual(seenBodies, [
+      '{"serialization":1}',
+      '{"serialization":1}',
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }
 })
 
-test('onError observes retry attempt request rebuild failures before rethrow', async () => {
+test('retry attempts do not reread mutable request headers or query', async () => {
   const originalFetch = globalThis.fetch
-  const observedErrors: unknown[] = []
-  let attempts = 0
-  let stringifyCalls = 0
-
-  const payload = {
-    toJSON() {
-      stringifyCalls += 1
-      if (stringifyCalls === 2) {
-        throw new Error('cannot replay payload')
-      }
-      return { ok: true }
-    },
+  const headers = new Headers({
+    'X-Request-Version': 'initial',
+  })
+  const query = {
+    version: 'initial',
   }
+  let attempts = 0
+  const seenRequests: Array<{ header: string | null; url: string }> = []
 
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (input) => {
     attempts += 1
-    return new Response('retry', {
-      status: 503,
-      statusText: 'Service Unavailable',
+    const req = input as Request
+    seenRequests.push({
+      header: req.headers.get('x-request-version'),
+      url: req.url,
     })
+
+    if (attempts === 1) {
+      headers.set('X-Request-Version', 'mutated')
+      query.version = 'mutated'
+
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
   }
 
   try {
-    await assert.rejects(
-      () =>
-        request('https://api.example.com/users', {
-          method: 'POST',
-          json: payload,
-          hooks: {
-            onError: [
-              async (context) => {
-                observedErrors.push(context.error)
-              },
-            ],
-          },
-          retry: {
-            attempts: 2,
-            backoffMs: 1,
-            maxBackoffMs: 1,
-            multiplier: 1,
-            retryOnStatuses: [503],
-            retryOnMethods: ['POST'],
-          },
-        }),
-      (error) =>
-        error instanceof Error &&
-        error.message === 'cannot replay payload',
-    )
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      headers,
+      query,
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
 
-    assert.equal(attempts, 1)
-    assert.equal(stringifyCalls, 2)
-    assert.equal(observedErrors.length, 1)
-    assert.ok(observedErrors[0] instanceof Error)
-    assert.equal((observedErrors[0] as Error).message, 'cannot replay payload')
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(seenRequests, [
+      {
+        header: 'initial',
+        url: 'https://api.example.com/users?version=initial',
+      },
+      {
+        header: 'initial',
+        url: 'https://api.example.com/users?version=initial',
+      },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry decisions use an initial snapshot of caller-owned policy arrays', async () => {
+  const originalFetch = globalThis.fetch
+  const retryOnStatuses = [503]
+  const retryOnMethods: Array<'GET'> = ['GET']
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+
+    if (attempts === 1) {
+      retryOnStatuses[0] = 500
+      retryOnMethods.length = 0
+
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses,
+        retryOnMethods,
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(attempts, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry attempts isolate mutable raw bodies from prior hook mutations', async () => {
+  const originalFetch = globalThis.fetch
+  const seenBodies: string[] = []
+  let attempts = 0
+
+  globalThis.fetch = async (input) => {
+    attempts += 1
+    const req = input as Request
+    seenBodies.push(await req.clone().text())
+
+    if (attempts < 3) {
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      method: 'POST',
+      body: new URLSearchParams({ value: 'base' }),
+      hooks: {
+        beforeRequest: [
+          (context) => {
+            assert.ok(context.body instanceof URLSearchParams)
+            context.body.append('hook', String(context.options.attempt))
+          },
+        ],
+      },
+      retry: {
+        attempts: 3,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['POST'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(seenBodies, [
+      'value=base&hook=1',
+      'value=base&hook=2',
+      'value=base&hook=3',
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -806,6 +904,7 @@ test('retryable HTTP responses cancel abandoned response bodies', async () => {
 test('abort during HTTP retry backoff stops promptly with AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
   const controller = new AbortController()
+  const observedErrors: unknown[] = []
   let attempts = 0
 
   globalThis.fetch = async () => {
@@ -819,6 +918,13 @@ test('abort during HTTP retry backoff stops promptly with AbortRequestError', as
   try {
     const promise = request('https://api.example.com/users', {
       signal: controller.signal,
+      hooks: {
+        onError: [
+          (context) => {
+            observedErrors.push(context.error)
+          },
+        ],
+      },
       retry: {
         attempts: 2,
         backoffMs: 50,
@@ -836,6 +942,8 @@ test('abort during HTTP retry backoff stops promptly with AbortRequestError', as
       (error) => error instanceof AbortRequestError,
     )
     assert.equal(attempts, 1)
+    assert.equal(observedErrors.length, 1)
+    assert.ok(observedErrors[0] instanceof AbortRequestError)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -998,6 +1106,7 @@ test('retry runs for network failures when method is eligible', async () => {
 
 test('abort during retry backoff stops promptly with AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
+  const observedErrors: unknown[] = []
   let attempts = 0
 
   globalThis.fetch = async () => {
@@ -1011,6 +1120,13 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
 
     const promise = request('https://api.example.com/users', {
       signal: controller.signal,
+      hooks: {
+        onError: [
+          (context) => {
+            observedErrors.push(context.error)
+          },
+        ],
+      },
       retry: {
         attempts: 3,
         backoffMs: 500,
@@ -1031,6 +1147,8 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
     )
 
     assert.equal(attempts, 1)
+    assert.equal(observedErrors.length, 1)
+    assert.ok(observedErrors[0] instanceof AbortRequestError)
     assert.ok(Date.now() - startedAt < 250)
   } finally {
     globalThis.fetch = originalFetch

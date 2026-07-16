@@ -1,8 +1,19 @@
 import {
   createClient,
   request,
+  type ClientDefaults,
+  type HttpClient,
   type NormalizedRequestOptions,
+  type ResponseType,
 } from '../src/index.js'
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends
+    (<Value>() => Value extends Right ? 1 : 2)
+    ? true
+    : false
+
+type Expect<Value extends true> = Value
 
 const client = createClient()
 type PublicNormalizedRequestOptions = NormalizedRequestOptions
@@ -45,6 +56,71 @@ const clientJsonPromise: Promise<{ ok: boolean } | undefined> = client.get<{
   ok: boolean
 }>('https://api.example.com/users')
 void clientJsonPromise
+
+const textDefaultClient = createClient({ responseType: 'text' })
+const defaultTextPromise: Promise<string> = textDefaultClient.get(
+  'https://api.example.com/text',
+)
+void defaultTextPromise
+
+const rawDefaultClient = createClient({ responseType: 'raw' })
+const defaultRawPromise: Promise<Response> = rawDefaultClient.get<{
+  ignoredAtRuntime: boolean
+}>(
+  'https://api.example.com/raw',
+)
+void defaultRawPromise
+
+const blobDefaultClient = createClient({ responseType: 'blob' })
+const defaultBlobPromise: Promise<Blob> = blobDefaultClient.get(
+  'https://api.example.com/blob',
+)
+void defaultBlobPromise
+
+const arrayBufferDefaultClient = createClient({ responseType: 'arrayBuffer' })
+const defaultArrayBufferPromise: Promise<ArrayBuffer> =
+  arrayBufferDefaultClient.get('https://api.example.com/binary')
+void defaultArrayBufferPromise
+
+const inheritedTextDefault = textDefaultClient.extend({
+  headers: { Accept: 'text/plain' },
+})
+const inheritedTextPromise: Promise<string> = inheritedTextDefault.get(
+  'https://api.example.com/text',
+)
+void inheritedTextPromise
+
+const extendedRawDefault = textDefaultClient.extend({ responseType: 'raw' })
+const extendedRawPromise: Promise<Response> = extendedRawDefault.get(
+  'https://api.example.com/raw',
+)
+void extendedRawPromise
+
+const dynamicDefaults: ClientDefaults = { responseType: 'text' }
+const dynamicDefaultClient = createClient(dynamicDefaults)
+type DynamicDefaultClient = Expect<
+  Equal<typeof dynamicDefaultClient, HttpClient<ResponseType>>
+>
+void (undefined as unknown as DynamicDefaultClient)
+
+const dynamicExtendedDefaults: ClientDefaults = { responseType: 'raw' }
+const dynamicExtendedClient = textDefaultClient.extend(dynamicExtendedDefaults)
+type DynamicExtendedClient = Expect<
+  Equal<typeof dynamicExtendedClient, HttpClient<ResponseType>>
+>
+void (undefined as unknown as DynamicExtendedClient)
+
+const explicitJsonFromTextDefault: Promise<{ ok: boolean } | undefined> =
+  textDefaultClient.get<{ ok: boolean }>('https://api.example.com/users', {
+    responseType: 'json',
+  })
+void explicitJsonFromTextDefault
+
+// @ts-expect-error an explicit client mode requires a matching runtime default
+createClient<'text'>()
+
+// @ts-expect-error an explicit extended mode requires a matching runtime default
+textDefaultClient.extend<'raw'>({})
 
 request('https://api.example.com/create', {
   method: 'POST',

@@ -231,10 +231,15 @@ export interface NormalizedRequestOptions {
 /**
  * Reusable client API produced by `createClient()`.
  */
-export interface HttpClient {
+export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
   request<T = unknown>(
     input: string | URL,
-    options?: JsonRequestOptions,
+    options?: DefaultRequestOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  request<T = unknown>(
+    input: string | URL,
+    options: JsonRequestOptions,
   ): Promise<T | undefined>
 
   request(
@@ -259,7 +264,12 @@ export interface HttpClient {
 
   get<T = unknown>(
     input: string | URL,
-    options?: JsonBodylessClientMethodOptions,
+    options?: DefaultBodylessClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  get<T = unknown>(
+    input: string | URL,
+    options: JsonBodylessClientMethodOptions,
   ): Promise<T | undefined>
 
   get(
@@ -284,7 +294,12 @@ export interface HttpClient {
 
   post<T = unknown>(
     input: string | URL,
-    options?: JsonClientMethodOptions,
+    options?: DefaultClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  post<T = unknown>(
+    input: string | URL,
+    options: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   post(
@@ -309,7 +324,12 @@ export interface HttpClient {
 
   put<T = unknown>(
     input: string | URL,
-    options?: JsonClientMethodOptions,
+    options?: DefaultClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  put<T = unknown>(
+    input: string | URL,
+    options: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   put(
@@ -334,7 +354,12 @@ export interface HttpClient {
 
   patch<T = unknown>(
     input: string | URL,
-    options?: JsonClientMethodOptions,
+    options?: DefaultClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  patch<T = unknown>(
+    input: string | URL,
+    options: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   patch(
@@ -359,7 +384,12 @@ export interface HttpClient {
 
   delete<T = unknown>(
     input: string | URL,
-    options?: JsonClientMethodOptions,
+    options?: DefaultClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  delete<T = unknown>(
+    input: string | URL,
+    options: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   delete(
@@ -384,7 +414,12 @@ export interface HttpClient {
 
   head<T = unknown>(
     input: string | URL,
-    options?: JsonBodylessClientMethodOptions,
+    options?: DefaultBodylessClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  head<T = unknown>(
+    input: string | URL,
+    options: JsonBodylessClientMethodOptions,
   ): Promise<T | undefined>
 
   head(
@@ -409,7 +444,12 @@ export interface HttpClient {
 
   options<T = unknown>(
     input: string | URL,
-    options?: JsonClientMethodOptions,
+    options?: DefaultClientMethodOptions,
+  ): Promise<ResponseResult<T, DefaultResponseType>>
+
+  options<T = unknown>(
+    input: string | URL,
+    options: JsonClientMethodOptions,
   ): Promise<T | undefined>
 
   options(
@@ -432,15 +472,46 @@ export interface HttpClient {
     options: RawClientMethodOptions,
   ): Promise<Response>
 
-  extend(defaults: ClientDefaults): HttpClient
+  extend<ChildResponseType extends ResponseType>(
+    defaults: Omit<ClientDefaults, 'responseType'> & {
+      responseType: ChildResponseType
+    },
+  ): HttpClient<ChildResponseType>
+
+  extend(
+    defaults: Omit<ClientDefaults, 'responseType'> & {
+      responseType?: never
+    },
+  ): HttpClient<DefaultResponseType>
+
+  extend(defaults: ClientDefaults): HttpClient<ResponseType>
+}
+
+type ResponseResult<T, ResponseMode extends ResponseType> =
+  ResponseMode extends 'json'
+    ? T | undefined
+    : ResponseMode extends 'text'
+      ? string
+      : ResponseMode extends 'blob'
+        ? Blob
+        : ResponseMode extends 'arrayBuffer'
+          ? ArrayBuffer
+          : Response
+
+type DefaultRequestOptions = RequestOptions & {
+  responseType?: never
 }
 
 type JsonRequestOptions = RequestOptions & {
-  responseType?: 'json'
+  responseType: 'json'
+}
+
+type DefaultClientMethodOptions = ClientMethodOptions & {
+  responseType?: never
 }
 
 type JsonClientMethodOptions = ClientMethodOptions & {
-  responseType?: 'json'
+  responseType: 'json'
 }
 
 type BodylessClientMethodOptions = RequestOptionsBase & {
@@ -448,8 +519,12 @@ type BodylessClientMethodOptions = RequestOptionsBase & {
   json?: never
 }
 
+type DefaultBodylessClientMethodOptions = BodylessClientMethodOptions & {
+  responseType?: never
+}
+
 type JsonBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType?: 'json'
+  responseType: 'json'
 }
 
 type TextRequestOptions = RequestOptions & {
