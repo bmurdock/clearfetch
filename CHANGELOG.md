@@ -10,10 +10,12 @@ the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
 - clarify that retried multipart bodies preserve values but do not guarantee byte-identical boundary encoding
 - reflect client-level response type defaults in TypeScript return types, including extended clients, and deprecate the internal `NormalizedRequestOptions` export
 - route aborts during retry backoff through `onError` before rethrowing
-- cancel abandoned response bodies before retrying eligible HTTP failures
+- give every `afterResponse` hook an independently readable response clone and cancel abandoned bodies on hook failure or before retry
+- keep internal execution options out of the public `beforeRequest` hook context
+- preserve special query keys such as `__proto__` as ordinary own properties in retry and hook snapshots
 - reject invalid query containers and JSON values for which `JSON.stringify` returns `undefined` or throws `TypeError` with `ConfigError`
 - recognize `URLSearchParams`, `ArrayBuffer`, `FormData`, and request streams across browser realm boundaries
-- add real Chromium cross-realm coverage and verify published declarations with TypeScript 5.0
+- isolate browser-only dependencies from the Node.js compatibility suite, add real Chromium cross-realm coverage, and verify published declarations with TypeScript 5.0
 - split query serialization and web-platform value handling into focused internal modules
 - omit declaration maps that reference unshipped source files and enforce packed artifact size budgets
 - add Node.js 26 compatibility coverage plus workflow concurrency and timeout limits
