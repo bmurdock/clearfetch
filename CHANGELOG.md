@@ -3,14 +3,27 @@
 Entries describe repository versions. A version is publicly released only after
 the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
 
-## Unreleased
+## 1.0.7
 
+- snapshot retry inputs and serialize JSON once so every eligible attempt replays stable request values without copying bodies for excluded methods
+- preserve retryable `FormData` file contents and metadata, reject files that cannot be cloned safely, and limit stream rejection to methods with multiple effective attempts
+- clarify that retried multipart bodies preserve values but do not guarantee byte-identical boundary encoding
+- reflect client-level response type defaults in TypeScript return types, including extended clients, and deprecate the internal `NormalizedRequestOptions` export
+- route aborts during retry backoff through `onError` before rethrowing
 - cancel abandoned response bodies before retrying eligible HTTP failures
 - reject invalid query containers and JSON values for which `JSON.stringify` returns `undefined` or throws `TypeError` with `ConfigError`
-- recognize `URLSearchParams` values across browser realm boundaries
+- recognize `URLSearchParams`, `ArrayBuffer`, `FormData`, and request streams across browser realm boundaries
+- add real Chromium cross-realm coverage and verify published declarations with TypeScript 5.0
+- split query serialization and web-platform value handling into focused internal modules
+- omit declaration maps that reference unshipped source files and enforce packed artifact size budgets
+- add Node.js 26 compatibility coverage plus workflow concurrency and timeout limits
 - require release tags to be annotated and reachable from `main` before publishing
 - keep release verification rerunnable when the package version already exists for the same commit
 - distinguish Node.js package compatibility from upstream-backed security support
+- lock all executed TypeScript compilers and validate dependency origins, integrity, and install-script scope before installation
+- disable dependency lifecycle scripts and persisted checkout credentials throughout CI and release automation
+- audit advisories, registry signatures, and attestations in CI, before release, and on a weekly schedule
+- publish the exact smoke-tested tarball from an OIDC-only job, verify its registry provenance, and isolate GitHub Release write authority in a separate job
 
 ## 1.0.6
 
