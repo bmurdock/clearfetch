@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 import { chromium } from 'playwright'
 
+import type { BeforeRequestContext } from '../src/types.js'
+
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const distDir = path.join(rootDir, 'dist')
 
@@ -50,6 +52,8 @@ test('real browser handles native values created in another realm', {
 
   let result: {
     arrayBufferResult: { attempts: number; bodies: number[][] }
+    crossRealmBaseURLResult: { pathname: string }
+    crossRealmURLResult: { search: string }
     formDataResult: { attempts: number; bodies: string[]; contentTypes: string[] }
     queryResult: { search: string }
     streamResult: { body: string }
@@ -87,6 +91,26 @@ test('real browser handles native values created in another realm', {
       const query = new foreign.URLSearchParams('tag=admin&page=1&tag=editor')
       const queryResult = await client.get('/query', { query })
 
+      const crossRealmURLClient = createClient({
+        hooks: {
+          beforeRequest: [
+            (context: BeforeRequestContext) => {
+              context.url = new foreign.URL(`${origin}/query?source=foreign`)
+            },
+          ],
+        },
+      })
+      const crossRealmURLResult = await crossRealmURLClient.get(
+        `${origin}/query?source=original`,
+      )
+
+      const foreignBaseURL = new foreign.URL(`${origin}/base-original/`)
+      const crossRealmBaseURLClient = createClient({
+        baseURL: foreignBaseURL,
+      })
+      foreignBaseURL.pathname = '/base-mutated/'
+      const crossRealmBaseURLResult = await crossRealmBaseURLClient.get('query')
+
       const bytes = new foreign.ArrayBuffer(4)
       new foreign.Uint8Array(bytes).set([1, 2, 3, 4])
       const arrayBufferResult = await client.post('/array-buffer', {
@@ -123,6 +147,8 @@ test('real browser handles native values created in another realm', {
       iframe.remove()
       return {
         arrayBufferResult,
+        crossRealmBaseURLResult,
+        crossRealmURLResult,
         formDataResult,
         queryResult,
         streamResult,
@@ -137,6 +163,12 @@ test('real browser handles native values created in another realm', {
 
   assert.deepEqual(result.queryResult, {
     search: '?tag=admin&page=1&tag=editor',
+  })
+  assert.deepEqual(result.crossRealmURLResult, {
+    search: '?source=foreign',
+  })
+  assert.deepEqual(result.crossRealmBaseURLResult, {
+    pathname: '/base-original/query',
   })
   assert.deepEqual(result.arrayBufferResult, {
     attempts: 2,
@@ -184,6 +216,14 @@ async function handleRequest(
 
   if (url.pathname === '/query') {
     sendJson(response, { search: url.search })
+    return
+  }
+
+  if (
+    url.pathname === '/base-original/query' ||
+    url.pathname === '/base-mutated/query'
+  ) {
+    sendJson(response, { pathname: url.pathname })
     return
   }
 

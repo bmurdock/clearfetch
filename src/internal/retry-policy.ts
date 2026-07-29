@@ -1,6 +1,7 @@
 import { ConfigError, HttpError, NetworkError } from '../errors.js'
 import type { HttpClientError } from '../errors.js'
 import type { RequestMethod, RetryOptions } from '../types.js'
+import { MAX_TIMER_DELAY_MS } from './timeout-controller.js'
 
 export const REQUEST_METHODS = new Set<RequestMethod>([
   'GET',
@@ -32,8 +33,6 @@ export function normalizeRetry(
 
   const retry = buildRetry(source)
   validateRetryNumbers(retry)
-  validateRetryOnStatuses(retry.retryOnStatuses)
-  validateRetryOnMethods(retry.retryOnMethods)
 
   return retry
 }
@@ -42,30 +41,50 @@ function selectRetrySource(
   defaultRetry?: false | RetryOptions,
   requestRetry?: false | RetryOptions,
 ): false | RetryOptions {
-  if (requestRetry === false) {
+  const source = requestRetry !== undefined ? requestRetry : defaultRetry
+  if (source === undefined || source === false) {
     return false
   }
 
-  const source = requestRetry ?? defaultRetry
-  if (source === undefined || source === false) {
-    return false
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    throw new ConfigError('`retry` must be false or an object')
   }
 
   return source
 }
 
 function buildRetry(source: RetryOptions): Required<RetryOptions> {
+  const retryOnStatuses =
+    source.retryOnStatuses === undefined
+      ? DEFAULT_RETRY.retryOnStatuses
+      : source.retryOnStatuses
+  const retryOnMethods =
+    source.retryOnMethods === undefined
+      ? DEFAULT_RETRY.retryOnMethods
+      : source.retryOnMethods
+
+  validateRetryOnStatuses(retryOnStatuses)
+  validateRetryOnMethods(retryOnMethods)
+
   return {
-    attempts: source.attempts ?? DEFAULT_RETRY.attempts,
-    backoffMs: source.backoffMs ?? DEFAULT_RETRY.backoffMs,
-    maxBackoffMs: source.maxBackoffMs ?? DEFAULT_RETRY.maxBackoffMs,
-    multiplier: source.multiplier ?? DEFAULT_RETRY.multiplier,
-    retryOnStatuses: [
-      ...(source.retryOnStatuses ?? DEFAULT_RETRY.retryOnStatuses),
-    ],
-    retryOnMethods: [
-      ...(source.retryOnMethods ?? DEFAULT_RETRY.retryOnMethods),
-    ],
+    attempts:
+      source.attempts === undefined
+        ? DEFAULT_RETRY.attempts
+        : source.attempts,
+    backoffMs:
+      source.backoffMs === undefined
+        ? DEFAULT_RETRY.backoffMs
+        : source.backoffMs,
+    maxBackoffMs:
+      source.maxBackoffMs === undefined
+        ? DEFAULT_RETRY.maxBackoffMs
+        : source.maxBackoffMs,
+    multiplier:
+      source.multiplier === undefined
+        ? DEFAULT_RETRY.multiplier
+        : source.multiplier,
+    retryOnStatuses: [...retryOnStatuses],
+    retryOnMethods: [...retryOnMethods],
   }
 }
 
@@ -78,9 +97,21 @@ function validateRetryNumbers(retry: Required<RetryOptions>): void {
     throw new ConfigError('`retry.backoffMs` must be a non-negative finite number')
   }
 
+  if (retry.backoffMs > MAX_TIMER_DELAY_MS) {
+    throw new ConfigError(
+      `\`retry.backoffMs\` must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+  }
+
   if (!Number.isFinite(retry.maxBackoffMs) || retry.maxBackoffMs < 0) {
     throw new ConfigError(
       '`retry.maxBackoffMs` must be a non-negative finite number',
+    )
+  }
+
+  if (retry.maxBackoffMs > MAX_TIMER_DELAY_MS) {
+    throw new ConfigError(
+      `\`retry.maxBackoffMs\` must be no greater than ${MAX_TIMER_DELAY_MS}`,
     )
   }
 

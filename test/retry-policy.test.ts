@@ -59,6 +59,64 @@ test('normalizeRetry rejects invalid attempts with existing message', () => {
   )
 })
 
+test('normalizeRetry rejects delays above the timer limit', () => {
+  const maximumDelay = normalizeRetry(undefined, {
+    backoffMs: 2_147_483_647,
+    maxBackoffMs: 2_147_483_647,
+  })
+  assert.ok(maximumDelay !== false)
+  assert.equal(maximumDelay.backoffMs, 2_147_483_647)
+  assert.equal(maximumDelay.maxBackoffMs, 2_147_483_647)
+
+  for (const retry of [
+    { backoffMs: 2_147_483_648 },
+    { maxBackoffMs: 2_147_483_648 },
+  ]) {
+    assert.throws(
+      () => normalizeRetry(undefined, retry),
+      (error) =>
+        error instanceof ConfigError &&
+        error.message.endsWith('must be no greater than 2147483647'),
+    )
+  }
+})
+
+test('normalizeRetry rejects invalid nested retry field types', () => {
+  const cases = [
+    {
+      retry: { attempts: null },
+      message: '`retry.attempts` must be a positive integer',
+    },
+    {
+      retry: { backoffMs: null },
+      message: '`retry.backoffMs` must be a non-negative finite number',
+    },
+    {
+      retry: { maxBackoffMs: null },
+      message: '`retry.maxBackoffMs` must be a non-negative finite number',
+    },
+    {
+      retry: { multiplier: null },
+      message: '`retry.multiplier` must be a finite number >= 1',
+    },
+    {
+      retry: { retryOnStatuses: null },
+      message: '`retry.retryOnStatuses` must be an array of status codes',
+    },
+    {
+      retry: { retryOnMethods: {} },
+      message: '`retry.retryOnMethods` must be an array of methods',
+    },
+  ]
+
+  for (const { message, retry } of cases) {
+    assert.throws(
+      () => normalizeRetry(undefined, retry as never),
+      (error) => error instanceof ConfigError && error.message === message,
+    )
+  }
+})
+
 test('normalizeRetry rejects invalid methods with existing message', () => {
   assert.throws(
     () => normalizeRetry(undefined, { retryOnMethods: ['post'] as never }),

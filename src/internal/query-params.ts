@@ -6,9 +6,13 @@ import type {
 } from '../types.js'
 import { isURLSearchParams } from './platform-values.js'
 
-export function snapshotQueryInput(query: QueryInput): QueryInput {
+export function snapshotQueryInput(query: unknown): QueryInput {
   if (isURLSearchParams(query)) {
     return new URLSearchParams(URLSearchParams.prototype.toString.call(query))
+  }
+
+  if (!isQueryParamsRecord(query)) {
+    throw new ConfigError('`query` must be a record or URLSearchParams')
   }
 
   const snapshot: QueryParams = {}
@@ -16,7 +20,7 @@ export function snapshotQueryInput(query: QueryInput): QueryInput {
     Object.defineProperty(snapshot, key, {
       configurable: true,
       enumerable: true,
-      value: Array.isArray(value) ? [...value] : value,
+      value: snapshotQueryValue(key, value),
       writable: true,
     })
   }
@@ -28,8 +32,7 @@ export function serializeQueryParams(query?: QueryInput): string {
     return ''
   }
 
-  validateQueryInput(query)
-  return serializeValidatedQueryParams(query)
+  return serializeValidatedQueryParams(snapshotQueryInput(query))
 }
 
 export function serializeValidatedQueryParams(query?: QueryInput): string {
@@ -70,32 +73,12 @@ export function applyQueryString(url: URL, queryString: string): void {
   url.search += suffix
 }
 
-export function validateQueryInput(
-  query: unknown,
-): asserts query is QueryInput {
-  if (isURLSearchParams(query)) {
-    return
-  }
-
-  if (!isQueryParamsRecord(query)) {
-    throw new ConfigError('`query` must be a record or URLSearchParams')
-  }
-
-  validateQueryParams(query)
-}
-
 function serializeScalarQueryValue(value: PrimitiveQueryValue): string {
   if (value === null) {
     return 'null'
   }
 
   return String(value)
-}
-
-function validateQueryParams(query: QueryParams): void {
-  for (const [key, value] of Object.entries(query)) {
-    validateQueryValue(key, value)
-  }
 }
 
 function isQueryParamsRecord(value: unknown): value is QueryParams {
@@ -110,22 +93,31 @@ function isQueryParamsRecord(value: unknown): value is QueryParams {
   }
 }
 
-function validateQueryValue(key: string, value: QueryParams[string]): void {
+function snapshotQueryValue(
+  key: string,
+  value: unknown,
+): QueryParams[string] {
   if (value === undefined) {
-    return
+    return undefined
   }
 
   if (Array.isArray(value)) {
+    const snapshot: PrimitiveQueryValue[] = []
     for (const item of value) {
       validateQueryScalarValue(key, item)
+      snapshot.push(item)
     }
-    return
+    return snapshot
   }
 
   validateQueryScalarValue(key, value)
+  return value
 }
 
-function validateQueryScalarValue(key: string, value: unknown): void {
+function validateQueryScalarValue(
+  key: string,
+  value: unknown,
+): asserts value is PrimitiveQueryValue {
   if (
     value === null ||
     typeof value === 'string' ||

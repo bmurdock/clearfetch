@@ -1,7 +1,9 @@
 import {
+  AbortRequestError,
   ConfigError,
   HttpClientError,
   HttpError,
+  TimeoutError,
 } from '../errors.js'
 import type {
   AfterResponseContext,
@@ -146,10 +148,17 @@ export async function executeRequest<T = unknown>(
               options: context.hookContext.options,
             }, afterResponseHooks)
           } catch (error) {
+            const propagatedError =
+              normalizeAttemptAbort({
+                context,
+                error,
+                request,
+                timeout,
+              }) ?? error
             try {
               await runOnErrorHooks({
                 input,
-                error,
+                error: propagatedError,
                 options: context.hookContext.options,
                 request,
                 response,
@@ -160,7 +169,33 @@ export async function executeRequest<T = unknown>(
               )
               cancelResponseBody(response)
             }
-            throw error
+            throw propagatedError
+          }
+
+          const abortError = normalizeAttemptAbort({
+            context,
+            error:
+              request.signal.reason ??
+              new DOMException('Request was aborted', 'AbortError'),
+            request,
+            timeout,
+          })
+          if (abortError !== undefined) {
+            try {
+              await runOnErrorHooks({
+                input,
+                error: abortError,
+                options: context.hookContext.options,
+                request,
+                response,
+              }, context.normalizedOptions.hooks.onError)
+            } finally {
+              timeout.abort(
+                new DOMException('Response body abandoned', 'AbortError'),
+              )
+              cancelResponseBody(response)
+            }
+            throw abortError
           }
         }
 
@@ -221,11 +256,16 @@ function createMethodCaller(
   return <T = unknown>(
     input: string | URL,
     options: RequestOptions = {},
-  ) => executeRequest<T>(
-    input,
-    defaults,
-    { ...options, method } as RequestOptions,
-  )
+  ) => {
+    const methodOptions =
+      typeof options === 'object' &&
+      options !== null &&
+      !Array.isArray(options)
+        ? { ...options, method } as RequestOptions
+        : options
+
+    return executeRequest<T>(input, defaults, methodOptions)
+  }
 }
 
 async function runBeforeRequestHooks(
@@ -346,6 +386,30 @@ function isRequestAbort(signal: AbortSignal, error: unknown): boolean {
   return (
     isSignalAbortReason(signal, error) ||
     (signal.aborted && isAbortLikeError(error))
+  )
+}
+
+function normalizeAttemptAbort(params: {
+  context: ExecutionBeforeRequestContext
+  error: unknown
+  request: Request
+  timeout: ReturnType<typeof createTimeoutController>
+}): HttpClientError | undefined {
+  const { context, error, request, timeout } = params
+  if (!request.signal.aborted) {
+    return undefined
+  }
+
+  if (
+    context.normalizedOptions.timeout !== undefined &&
+    timeout.didTimeout()
+  ) {
+    return new TimeoutError(context.normalizedOptions.timeout, error)
+  }
+
+  return new AbortRequestError(
+    'Request was aborted',
+    request.signal.reason !== undefined ? request.signal.reason : error,
   )
 }
 

@@ -370,11 +370,13 @@ const user = User.parse(data)
 - JSON mode returns `undefined` for empty response bodies.
 - In JSON mode, successful empty bodies resolve as `T | undefined`.
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
+- Timeout and retry-delay values may not exceed `2,147,483,647` milliseconds, the maximum reliable platform timer delay.
+- After the timeout window starts, expiration remains authoritative through `afterResponse` hooks and response parsing.
 - Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`.
 - Hook, request-normalization, retry rebuild, and request-construction failures are not wrapped as `NetworkError`.
 - Each `afterResponse` hook receives an independently readable cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
-- `beforeRequest` may override the URL only with a final absolute URL.
+- `beforeRequest` may override the URL only with a final absolute `URL`, including a `URL` created in another browser realm.
 - `beforeRequest` may mutate headers, but hook option metadata is read-only.
 - Retry support is opt-in and conservative by default.
 - Streaming request bodies are rejected only when the request method is eligible for multiple attempts.
@@ -392,6 +394,7 @@ const user = User.parse(data)
 - External abort reasons are preserved as `AbortRequestError.cause` when the platform exposes them.
 - Retry backoff waits are abortable.
 - Retry attempts reuse a snapshot of the initially normalized URL, headers, retry policy, and request body. JSON bodies are serialized once before the first attempt.
+- Client defaults are snapshotted at client creation, including mutable `URL` values created in another browser realm.
 - Retryable `FormData` file values that the current runtime cannot clone safely are rejected instead of being coerced into different payloads.
 - Retried `FormData` preserves semantic values but does not guarantee byte-identical multipart boundaries across attempts.
 - Timeout windows start after `beforeRequest` hooks complete.
@@ -399,6 +402,7 @@ const user = User.parse(data)
 - If `beforeRequest` replaces `context.url`, that replacement is final. Previously resolved `baseURL` and query parameters are not reapplied to the replacement URL.
 - Hook metadata includes `context.options.attempt` and `context.options.maxAttempts`. Non-retried requests report attempt `1` and max attempts `1`.
 - When `query` serializes to a non-empty string, hook metadata includes `context.options.queryString` without a leading `?`. Existing search parameters from the input URL remain visible on `context.url`.
+- Query values are snapshotted once during normalization so retry and hook metadata do not re-read caller-owned accessors.
 
 ## Important limitations by design
 

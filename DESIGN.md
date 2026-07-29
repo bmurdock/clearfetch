@@ -345,6 +345,9 @@ Client defaults may include:
 - default hooks
 - default JSON parser
 
+Mutable default inputs are snapshotted when the client is created. This includes
+`URL` values created in another browser realm.
+
 ### Validation rules
 
 Validation must occur before the request is executed.
@@ -354,10 +357,13 @@ Invalid configurations must fail fast with a configuration error.
 Examples of invalid configurations include:
 
 - both `body` and `json` provided
+- invalid option or default containers
+- invalid header names or values
 - negative timeout
+- timeout or retry-delay values above the platform timer maximum of `2,147,483,647` milliseconds
 - malformed base URL
 - unsupported response type
-- invalid retry values
+- invalid retry values, including explicit `null` nested fields
 
 Strict validation is desirable. Silent coercion should be avoided unless it is trivial and unsurprising.
 
@@ -660,6 +666,7 @@ A timeout means:
 - the package creates an internal abort controller
 - the controller aborts once the configured timeout elapses
 - timeout expiration produces a `TimeoutError`
+- after the timer starts, timeout classification remains authoritative through `afterResponse` hooks and response parsing
 
 ### External abort model
 
@@ -773,7 +780,7 @@ In particular:
 - hook metadata exposed through `context.options` is read-only and must not act as a hidden mutation surface
 - hook metadata includes current attempt counts for application-owned logging and metrics
 
-If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute URL. Relative replacement URLs are invalid and must fail with `ConfigError`.
+If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute `URL`. URLs from another browser realm are valid; relative replacement URLs are invalid and must fail with `ConfigError`.
 
 When a hook replaces the URL, that replacement becomes the final URL for the request and overrides any previously resolved URL, including query parameters.
 
@@ -814,6 +821,8 @@ When enabled, retries should default to safe cases such as:
 Retry execution must snapshot the initially normalized URL, headers, retry
 policy, and body before the first attempt. JSON is serialized once so later
 attempts replay the same payload rather than re-reading caller-owned state.
+Query values are likewise read and validated once during request normalization,
+and the resulting snapshot supplies both URL serialization and hook metadata.
 
 ### Unsafe scenarios
 

@@ -19,13 +19,13 @@ import {
   serializeQueryParams,
   serializeValidatedQueryParams,
   snapshotQueryInput,
-  validateQueryInput,
 } from './query-params.js'
 import {
   getEffectiveRetryAttempts,
   REQUEST_METHODS,
   normalizeRetry,
 } from './retry-policy.js'
+import { MAX_TIMER_DELAY_MS } from './timeout-controller.js'
 
 const RESPONSE_TYPES = new Set<ResponseType>([
   'json',
@@ -240,9 +240,7 @@ export function buildRequestFromContext(
 ): Request {
   const { hookContext, normalizedOptions } = context
 
-  if (!(hookContext.url instanceof URL)) {
-    throw new ConfigError('beforeRequest URL overrides must be absolute URLs')
-  }
+  const requestURL = normalizeBeforeRequestURL(hookContext.url)
 
   const init: RequestInit = {
     method: normalizedOptions.method,
@@ -262,22 +260,37 @@ export function buildRequestFromContext(
     init.signal = normalizedOptions.signal
   }
 
-  return new Request(hookContext.url, init)
+  return new Request(requestURL, init)
 }
 
 export function normalizeRequestOptions(
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
 ): NormalizedRequestOptions {
-  const method = normalizeMethod(options.method ?? 'GET')
-  const timeout = normalizeTimeout(options.timeout ?? defaults.timeout)
+  validateOptionsContainer(defaults, 'defaults')
+  validateOptionsContainer(options, 'options')
+
+  const method = normalizeMethod(
+    options.method !== undefined ? options.method : 'GET',
+  )
+  const timeout = normalizeTimeout(
+    options.timeout !== undefined ? options.timeout : defaults.timeout,
+  )
   const responseType = normalizeResponseType(
-    options.responseType ?? defaults.responseType ?? 'json',
+    options.responseType !== undefined
+      ? options.responseType
+      : defaults.responseType !== undefined
+        ? defaults.responseType
+        : 'json',
   )
   const retry = normalizeRetry(defaults.retry, options.retry)
   const hooks = mergeHooks(defaults.hooks, options.hooks)
   const parseJson = normalizeParseJson(
-    options.parseJson ?? defaults.parseJson ?? DEFAULT_PARSE_JSON,
+    options.parseJson !== undefined
+      ? options.parseJson
+      : defaults.parseJson !== undefined
+        ? defaults.parseJson
+        : DEFAULT_PARSE_JSON,
   )
   const headers = mergeHeaders(defaults.headers, options.headers)
 
@@ -308,8 +321,7 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
-    validateQueryInput(options.query)
-    normalized.query = options.query
+    normalized.query = snapshotQueryInput(options.query)
   }
 
   if (options.body !== undefined) {
@@ -361,10 +373,13 @@ function mergeHeaders(
   defaultHeaders?: HeadersInit,
   requestHeaders?: HeadersInit,
 ): Headers {
-  const headers = new Headers(defaultHeaders)
+  const headers = createHeaders(defaultHeaders)
 
   if (requestHeaders !== undefined) {
-    const overrideHeaders = new Headers(requestHeaders)
+    if (requestHeaders === null) {
+      throw new ConfigError('`headers` must not be null')
+    }
+    const overrideHeaders = createHeaders(requestHeaders)
 
     for (const [key, value] of overrideHeaders.entries()) {
       headers.set(key, value)
@@ -372,6 +387,29 @@ function mergeHeaders(
   }
 
   return headers
+}
+
+function createHeaders(headers?: HeadersInit): Headers {
+  try {
+    return new Headers(headers)
+  } catch (cause) {
+    if (cause instanceof TypeError) {
+      throw new ConfigError(
+        '`headers` must contain valid header names and values',
+        cause,
+      )
+    }
+    throw cause
+  }
+}
+
+function validateOptionsContainer(
+  value: unknown,
+  name: 'defaults' | 'options',
+): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ConfigError(`\`${name}\` must be an object`)
+  }
 }
 
 function normalizeMethod(method: unknown): RequestMethod {
@@ -391,7 +429,24 @@ function normalizeTimeout(timeout?: number): number | undefined {
     throw new ConfigError('`timeout` must be a non-negative finite number')
   }
 
+  if (timeout > MAX_TIMER_DELAY_MS) {
+    throw new ConfigError(
+      `\`timeout\` must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+  }
+
   return timeout
+}
+
+function normalizeBeforeRequestURL(value: unknown): URL {
+  try {
+    return new URL(URL.prototype.toString.call(value as URL))
+  } catch (cause) {
+    throw new ConfigError(
+      'beforeRequest URL overrides must be absolute URLs',
+      cause,
+    )
+  }
 }
 
 function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {

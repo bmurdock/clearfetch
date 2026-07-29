@@ -58,6 +58,55 @@ test('snapshotQueryInput preserves special keys as own data properties', () => {
   assert.equal(snapshot.constructor, 'value')
 })
 
+test('createBeforeRequestContext reads accessor-backed query values once', () => {
+  let reads = 0
+  const query = {
+    get token() {
+      reads += 1
+      return reads === 1 ? 'stable' : `changed-${reads}`
+    },
+  }
+
+  const context = createBeforeRequestContext(
+    'https://api.example.com/users',
+    {},
+    { query },
+  )
+
+  assert.equal(reads, 1)
+  assert.equal(
+    context.hookContext.url.toString(),
+    'https://api.example.com/users?token=stable',
+  )
+  assert.deepEqual(context.hookContext.options.query, { token: 'stable' })
+})
+
+test('createBeforeRequestContext reads accessor-backed query array values once', () => {
+  let reads = 0
+  const values: unknown[] = []
+  Object.defineProperty(values, 0, {
+    enumerable: true,
+    get() {
+      reads += 1
+      return reads === 1 ? 'stable' : { invalid: true }
+    },
+  })
+  values.length = 1
+
+  const context = createBeforeRequestContext(
+    'https://api.example.com/users',
+    {},
+    { query: { token: values as never } },
+  )
+
+  assert.equal(reads, 1)
+  assert.equal(
+    context.hookContext.url.toString(),
+    'https://api.example.com/users?token=stable',
+  )
+  assert.deepEqual(context.hookContext.options.query, { token: ['stable'] })
+})
+
 test('resolveRequestURL appends URLSearchParams query input', () => {
   const query = new URLSearchParams('tag=a&page=1&tag=b')
   const url = resolveRequestURL(
@@ -193,6 +242,88 @@ test('normalizeRequestOptions rejects non-function parseJson values', () => {
     (error) =>
       error instanceof ConfigError &&
       error.message === '`parseJson` must be a function',
+  )
+})
+
+test('normalizeRequestOptions rejects null request overrides', () => {
+  const defaults = {
+    timeout: 5_000,
+    responseType: 'text' as const,
+    retry: { attempts: 2 },
+    hooks: { beforeRequest: [() => undefined] },
+    parseJson: () => 42,
+  }
+  const cases = [
+    {
+      options: { headers: null },
+      message: '`headers` must not be null',
+    },
+    {
+      options: { timeout: null },
+      message: '`timeout` must be a non-negative finite number',
+    },
+    {
+      options: { responseType: null },
+      message: 'Unsupported responseType: null',
+    },
+    {
+      options: { retry: null },
+      message: '`retry` must be false or an object',
+    },
+    {
+      options: { hooks: null },
+      message: '`hooks` must be an object',
+    },
+    {
+      options: { parseJson: null },
+      message: '`parseJson` must be a function',
+    },
+  ]
+
+  for (const { message, options } of cases) {
+    assert.throws(
+      () => normalizeRequestOptions(defaults, options as never),
+      (error) => error instanceof ConfigError && error.message === message,
+    )
+  }
+})
+
+test('normalizeRequestOptions rejects invalid option containers and headers', () => {
+  assert.throws(
+    () => normalizeRequestOptions({}, null as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`options` must be an object',
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        headers: {
+          'bad header': 'value',
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`headers` must contain valid header names and values' &&
+      error.cause instanceof TypeError,
+  )
+})
+
+test('normalizeRequestOptions rejects timeout values above the timer limit', () => {
+  assert.equal(
+    normalizeRequestOptions({}, { timeout: 2_147_483_647 }).timeout,
+    2_147_483_647,
+  )
+
+  assert.throws(
+    () =>
+      normalizeRequestOptions({}, {
+        timeout: 2_147_483_648,
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`timeout` must be no greater than 2147483647',
   )
 })
 

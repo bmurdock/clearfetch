@@ -5,6 +5,10 @@ the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
 
 ## 1.0.7
 
+- reject timeout and retry-delay values above the maximum reliable platform timer delay and preserve timeout classification through `afterResponse` hooks
+- reject invalid option/default containers, headers, and nested retry values with `ConfigError` instead of silently inheriting defaults or leaking platform errors
+- accept absolute `URL` replacements created in another browser realm from `beforeRequest` hooks and snapshot cross-realm `baseURL` defaults
+- snapshot accessor-backed query values once so request URLs and hook metadata cannot diverge
 - snapshot retry inputs and serialize JSON once so every eligible attempt replays stable request values without copying bodies for excluded methods
 - preserve retryable `FormData` file contents and metadata, reject files that cannot be cloned safely, and limit stream rejection to methods with multiple effective attempts
 - clarify that retried multipart bodies preserve values but do not guarantee byte-identical boundary encoding

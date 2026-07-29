@@ -184,6 +184,233 @@ test('timeout starts after beforeRequest hooks complete', async () => {
   }
 })
 
+test('timeout expiration during afterResponse hooks surfaces TimeoutError', async () => {
+  const originalFetch = globalThis.fetch
+  let observedError: unknown
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          timeout: 5,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+              },
+            ],
+            onError: [
+              (context) => {
+                observedError = context.error
+              },
+            ],
+          },
+        }),
+      (error) => error instanceof TimeoutError && error.timeout === 5,
+    )
+
+    assert.ok(observedError instanceof TimeoutError)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('timeout aborts from afterResponse body reads are normalized', async () => {
+  const originalFetch = globalThis.fetch
+  let observedError: unknown
+
+  globalThis.fetch = async (input) => {
+    const request = input as Request
+    const body = new ReadableStream({
+      start(controller) {
+        request.signal.addEventListener(
+          'abort',
+          () => controller.error(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      },
+    })
+    return new Response(body)
+  }
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          timeout: 5,
+          hooks: {
+            afterResponse: [
+              async (context) => {
+                await context.response.text()
+              },
+            ],
+            onError: [
+              (context) => {
+                observedError = context.error
+              },
+            ],
+          },
+        }),
+      (error) => error instanceof TimeoutError && error.timeout === 5,
+    )
+
+    assert.ok(observedError instanceof TimeoutError)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external aborts during afterResponse hooks stay AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  const reason = new Error('stop response inspection')
+  let observedError: unknown
+
+  globalThis.fetch = async (input) => {
+    const request = input as Request
+    const body = new ReadableStream({
+      start(streamController) {
+        request.signal.addEventListener(
+          'abort',
+          () => streamController.error(request.signal.reason),
+          { once: true },
+        )
+      },
+    })
+    return new Response(body)
+  }
+
+  const abortId = setTimeout(() => controller.abort(reason), 5)
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          signal: controller.signal,
+          hooks: {
+            afterResponse: [
+              async (context) => {
+                await context.response.text()
+              },
+            ],
+            onError: [
+              (context) => {
+                observedError = context.error
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof AbortRequestError &&
+        error.cause === reason,
+    )
+
+    assert.ok(observedError instanceof AbortRequestError)
+    assert.equal(observedError.cause, reason)
+  } finally {
+    clearTimeout(abortId)
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('timeout classification overrides clearfetch errors thrown by afterResponse hooks', async () => {
+  const originalFetch = globalThis.fetch
+  const hookError = new ConfigError('late hook failure')
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          timeout: 5,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                throw hookError
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof TimeoutError &&
+        error.timeout === 5 &&
+        error.cause === hookError,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external abort classification overrides clearfetch errors thrown by afterResponse hooks', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  const reason = new Error('stop response inspection')
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  const abortId = setTimeout(() => controller.abort(reason), 5)
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          signal: controller.signal,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                throw new ConfigError('late hook failure')
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof AbortRequestError &&
+        error.cause === reason,
+    )
+  } finally {
+    clearTimeout(abortId)
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('afterResponse abort classification preserves an explicit null reason', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  const abortId = setTimeout(() => controller.abort(null), 5)
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          signal: controller.signal,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                throw new ConfigError('late hook failure')
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof AbortRequestError &&
+        error.cause === null,
+    )
+  } finally {
+    clearTimeout(abortId)
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('external abort surfaces AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input) =>
