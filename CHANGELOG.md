@@ -3,6 +3,34 @@
 Entries describe repository versions. A version is publicly released only after
 the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
 
+## 1.0.7
+
+- reject timeout and retry-delay values above the maximum reliable platform timer delay and preserve timeout classification through `afterResponse` hooks
+- reject invalid option/default containers, headers, and nested retry values with `ConfigError` instead of silently inheriting defaults or leaking platform errors
+- accept absolute `URL` replacements created in another browser realm from `beforeRequest` hooks and snapshot cross-realm `baseURL` defaults
+- snapshot accessor-backed query values once so request URLs and hook metadata cannot diverge
+- snapshot retry inputs and serialize JSON once so every eligible attempt replays stable request values without copying bodies for excluded methods
+- preserve retryable `FormData` file contents and metadata, reject files that cannot be cloned safely, and limit stream rejection to methods with multiple effective attempts
+- clarify that retried multipart bodies preserve values but do not guarantee byte-identical boundary encoding
+- reflect client-level response type defaults in TypeScript return types, including extended clients, and deprecate the internal `NormalizedRequestOptions` export
+- route aborts during retry backoff through `onError` before rethrowing
+- give every `afterResponse` hook an independently readable response clone and cancel abandoned bodies on hook failure or before retry
+- keep internal execution options out of the public `beforeRequest` hook context
+- preserve special query keys such as `__proto__` as ordinary own properties in retry and hook snapshots
+- reject invalid query containers and JSON values for which `JSON.stringify` returns `undefined` or throws `TypeError` with `ConfigError`
+- recognize `URLSearchParams`, `ArrayBuffer`, `FormData`, and request streams across browser realm boundaries
+- isolate browser-only dependencies from the Node.js compatibility suite, add real Chromium cross-realm coverage, and verify published declarations with TypeScript 5.0
+- split query serialization and web-platform value handling into focused internal modules
+- omit declaration maps that reference unshipped source files and enforce packed artifact size budgets
+- add Node.js 26 compatibility coverage plus workflow concurrency and timeout limits
+- require release tags to be annotated and reachable from `main` before publishing
+- keep release verification rerunnable when the package version already exists for the same commit
+- distinguish Node.js package compatibility from upstream-backed security support
+- lock all executed TypeScript compilers and validate dependency origins, integrity, and install-script scope before installation
+- disable dependency lifecycle scripts and persisted checkout credentials throughout CI and release automation
+- audit advisories, registry signatures, and attestations in CI, before release, and on a weekly schedule
+- publish the exact smoke-tested tarball from an OIDC-only job, verify its registry provenance, and isolate GitHub Release write authority in a separate job
+
 ## 1.0.6
 
 - validate hook configuration consistently for client defaults and request options

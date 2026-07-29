@@ -11,96 +11,279 @@ env:
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   verify-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      tarball_integrity: ${{ steps.artifact.outputs.tarball_integrity }}
+      tarball_name: ${{ steps.artifact.outputs.tarball_name }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          node-version: 24
-          cache: npm
-          registry-url: https://registry.npmjs.org
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify package
-        run: |
-          npm run lint
-          npm test
-          npm run build
-          npm run check:package-metadata
-          npm run check:pack-smoke
-          npm publish --dry-run
-
-  publish:
-    if: github.event_name == 'push'
-    needs: verify-release
-    runs-on: ubuntu-latest
-    environment: npm
-    permissions:
-      contents: write
-      id-token: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: 24
-          cache: npm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify package
-        run: |
-          npm run lint
-          npm test
-          npm run build
-          npm run check:package-metadata
-          npm run check:pack-smoke
-          npm publish --dry-run
-
-      - name: Publish to npm with provenance
+      - name: Validate release tag
+        if: github.event_name == 'push'
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          CURRENT_GIT_HEAD="$(git rev-parse HEAD)"
 
           if [ "$TAG_NAME" != "v$PACKAGE_VERSION" ]; then
             echo "Release tag $TAG_NAME does not match package version v$PACKAGE_VERSION" >&2
             exit 1
           fi
 
-          PUBLISHED_VERSION="$(npm view "@gavoryn/clearfetch@$PACKAGE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
-
-          if [ "$PUBLISHED_VERSION" = "$PACKAGE_VERSION" ]; then
-            PUBLISHED_GIT_HEAD="$(npm view "@gavoryn/clearfetch@$PACKAGE_VERSION" gitHead --registry=https://registry.npmjs.org 2>/dev/null || true)"
-            CURRENT_GIT_HEAD="$(git rev-parse HEAD)"
-
-            if [ "$PUBLISHED_GIT_HEAD" != "$CURRENT_GIT_HEAD" ]; then
-              echo "Published gitHead $PUBLISHED_GIT_HEAD does not match current tag commit $CURRENT_GIT_HEAD" >&2
-              exit 1
-            fi
-
-            echo "Version $PACKAGE_VERSION is already published; skipping npm publish."
-          else
-            npm publish
+          TAG_OBJECT_TYPE="$(git cat-file -t "refs/tags/$TAG_NAME" 2>/dev/null || true)"
+          if [ "$TAG_OBJECT_TYPE" != "tag" ]; then
+            echo "Release tag $TAG_NAME must be annotated" >&2
+            exit 1
           fi
 
+          git fetch origin main:refs/remotes/origin/main --no-tags
+          if ! git merge-base --is-ancestor "$CURRENT_GIT_HEAD" origin/main; then
+            echo "Release commit $CURRENT_GIT_HEAD is not reachable from origin/main" >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - name: Validate lockfile before install
+        run: node scripts/check-lockfile.mjs
+
+      - name: Install dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --registry=https://registry.npmjs.org
+
+      - name: Verify package and dependency evidence
+        run: |
+          npm run lint
+          npm test
+          npm run test:browser-like
+          npm run build
+          npm run test:types-compat
+          npm run check:package-metadata
+          npm run check:dependency-audit
+          npm run check:dependency-signatures
+          npm run check:pack-smoke -- --retain
+
+      - name: Check exact artifact publishability
+        run: npm run check:publish-dry-run -- release-artifact/*.tgz
+
+      - name: Record artifact identity
+        id: artifact
+        run: |
+          TARBALLS=(release-artifact/*.tgz)
+          if [ "${#TARBALLS[@]}" -ne 1 ] || [ ! -f "${TARBALLS[0]}" ]; then
+            echo "Expected exactly one release tarball" >&2
+            exit 1
+          fi
+
+          TARBALL="${TARBALLS[0]}"
+          TARBALL_NAME="$(basename "$TARBALL")"
+          TARBALL_INTEGRITY="$(TARBALL_PATH="$TARBALL" node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { readFileSync } from 'node:fs'
+
+          const bytes = readFileSync(process.env.TARBALL_PATH)
+          process.stdout.write(`sha512-${createHash('sha512').update(bytes).digest('base64')}`)
+          NODE
+          )"
+
+          echo "tarball_name=$TARBALL_NAME" >> "$GITHUB_OUTPUT"
+          echo "tarball_integrity=$TARBALL_INTEGRITY" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified release artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: release-artifact/${{ steps.artifact.outputs.tarball_name }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push'
+    needs: verify-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - name: Download verified release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.verify-release.outputs.artifact_id }}
+          path: release-artifact
+          digest-mismatch: error
+
+      - name: Publish exact artifact with provenance
+        env:
+          EXPECTED_INTEGRITY: ${{ needs.verify-release.outputs.tarball_integrity }}
+          TAG_NAME: ${{ github.ref_name }}
+          TARBALL_NAME: ${{ needs.verify-release.outputs.tarball_name }}
+        run: |
+          TARBALL="./release-artifact/$TARBALL_NAME"
+          if [ ! -f "$TARBALL" ]; then
+            echo "Verified tarball $TARBALL was not downloaded" >&2
+            exit 1
+          fi
+
+          ACTUAL_INTEGRITY="$(TARBALL_PATH="$TARBALL" node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { readFileSync } from 'node:fs'
+
+          const bytes = readFileSync(process.env.TARBALL_PATH)
+          process.stdout.write(`sha512-${createHash('sha512').update(bytes).digest('base64')}`)
+          NODE
+          )"
+          if [ "$ACTUAL_INTEGRITY" != "$EXPECTED_INTEGRITY" ]; then
+            echo "Downloaded tarball integrity does not match verified artifact" >&2
+            exit 1
+          fi
+
+          PACKAGE_JSON="$(tar -xOf "$TARBALL" package/package.json)"
+          PACKAGE_NAME="$(PACKAGE_JSON="$PACKAGE_JSON" node -p "JSON.parse(process.env.PACKAGE_JSON).name")"
+          PACKAGE_VERSION="$(PACKAGE_JSON="$PACKAGE_JSON" node -p "JSON.parse(process.env.PACKAGE_JSON).version")"
+
+          if [ "$PACKAGE_NAME" != "@gavoryn/clearfetch" ]; then
+            echo "Tarball package name $PACKAGE_NAME is not @gavoryn/clearfetch" >&2
+            exit 1
+          fi
+
+          if [ "$TAG_NAME" != "v$PACKAGE_VERSION" ]; then
+            echo "Release tag $TAG_NAME does not match tarball version v$PACKAGE_VERSION" >&2
+            exit 1
+          fi
+
+          PUBLISHED_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --registry=https://registry.npmjs.org 2>/dev/null || true)"
+          if [ -n "$PUBLISHED_INTEGRITY" ]; then
+            if [ "$PUBLISHED_INTEGRITY" != "$ACTUAL_INTEGRITY" ]; then
+              echo "Published integrity does not match the verified tarball" >&2
+              exit 1
+            fi
+            echo "$PACKAGE_NAME@$PACKAGE_VERSION already has the verified bytes; skipping npm publish."
+          else
+            npm publish "$TARBALL" --ignore-scripts --provenance --registry=https://registry.npmjs.org
+          fi
+
+          REGISTRY_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --registry=https://registry.npmjs.org)"
+          if [ "$REGISTRY_INTEGRITY" != "$ACTUAL_INTEGRITY" ]; then
+            echo "Registry integrity does not match the verified tarball after publish" >&2
+            exit 1
+          fi
+
+          ATTESTATION_URL="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.attestations.url --registry=https://registry.npmjs.org)"
+          if [ -z "$ATTESTATION_URL" ]; then
+            echo "Published package has no npm attestation URL" >&2
+            exit 1
+          fi
+
+          ATTESTATION_DIR="$(mktemp -d)"
+          trap 'rm -rf "$ATTESTATION_DIR"' EXIT
+          (
+            cd "$ATTESTATION_DIR"
+            npm init --yes >/dev/null
+            npm install --ignore-scripts --no-audit --registry=https://registry.npmjs.org "$PACKAGE_NAME@$PACKAGE_VERSION" >/dev/null
+            npm audit signatures --registry=https://registry.npmjs.org
+          )
+
+          ATTESTATION_URL="$ATTESTATION_URL" \
+          PACKAGE_NAME="$PACKAGE_NAME" \
+          PACKAGE_VERSION="$PACKAGE_VERSION" \
+          PACKAGE_INTEGRITY="$ACTUAL_INTEGRITY" \
+          TAG_NAME="$TAG_NAME" \
+          node --input-type=module <<'NODE'
+          const response = await fetch(process.env.ATTESTATION_URL)
+          if (!response.ok) {
+            throw new Error(`npm attestation request failed with ${response.status}`)
+          }
+
+          const document = await response.json()
+          const provenance = document.attestations?.find(
+            (entry) => entry.predicateType === 'https://slsa.dev/provenance/v1',
+          )
+          if (provenance === undefined) {
+            throw new Error('published package has no SLSA provenance attestation')
+          }
+
+          const statement = JSON.parse(
+            Buffer.from(provenance.bundle.dsseEnvelope.payload, 'base64').toString('utf8'),
+          )
+          const expectedDigest = Buffer.from(
+            process.env.PACKAGE_INTEGRITY.slice('sha512-'.length),
+            'base64',
+          ).toString('hex')
+          const expectedSubject = `pkg:npm/${process.env.PACKAGE_NAME.replace(/^@/, '%40')}@${process.env.PACKAGE_VERSION}`
+          const subject = statement.subject?.find((entry) => entry.name === expectedSubject)
+          if (subject?.digest?.sha512 !== expectedDigest) {
+            throw new Error('SLSA subject does not match the published package bytes')
+          }
+
+          const workflow = statement.predicate?.buildDefinition?.externalParameters?.workflow
+          const expectedRepository = `https://github.com/${process.env.GITHUB_REPOSITORY}`
+          const expectedRef = `refs/tags/${process.env.TAG_NAME}`
+          if (
+            workflow?.repository !== expectedRepository ||
+            workflow?.path !== '.github/workflows/release.yml' ||
+            workflow?.ref !== expectedRef
+          ) {
+            throw new Error('SLSA provenance does not identify the expected release workflow')
+          }
+
+          const expectedSource = `git+${expectedRepository}@${expectedRef}`
+          const source = statement.predicate?.buildDefinition?.resolvedDependencies?.find(
+            (entry) => entry.uri === expectedSource,
+          )
+          if (source?.digest?.gitCommit !== process.env.GITHUB_SHA) {
+            throw new Error('SLSA provenance does not identify the release commit')
+          }
+
+          if (
+            statement.predicate?.buildDefinition?.internalParameters?.github?.event_name !== 'push'
+          ) {
+            throw new Error('SLSA provenance was not produced by a tag push')
+          }
+
+          console.log('npm provenance matches the expected artifact, workflow, tag, and commit')
+          NODE
+
+  github-release:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
       - name: Create or verify GitHub Release
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |

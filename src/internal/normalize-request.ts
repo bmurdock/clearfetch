@@ -3,16 +3,29 @@ import type {
   BeforeRequestContext,
   ClientDefaults,
   NormalizedRequestOptions,
-  PrimitiveQueryValue,
   QueryInput,
-  QueryParams,
   RequestMethod,
   RequestOptions,
   ResponseType,
 } from '../types.js'
 import { mergeHooks } from './hooks.js'
 import { createHookRequestOptions } from './hook-options.js'
-import { REQUEST_METHODS, normalizeRetry } from './retry-policy.js'
+import {
+  isReadableStream,
+  snapshotRequestBody,
+} from './platform-values.js'
+import {
+  applyQueryString,
+  serializeQueryParams,
+  serializeValidatedQueryParams,
+  snapshotQueryInput,
+} from './query-params.js'
+import {
+  getEffectiveRetryAttempts,
+  REQUEST_METHODS,
+  normalizeRetry,
+} from './retry-policy.js'
+import { MAX_TIMER_DELAY_MS } from './timeout-controller.js'
 
 const RESPONSE_TYPES = new Set<ResponseType>([
   'json',
@@ -24,8 +37,16 @@ const RESPONSE_TYPES = new Set<ResponseType>([
 
 const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text)
 
-export interface ExecutionBeforeRequestContext extends BeforeRequestContext {
-  _internalOptions: NormalizedRequestOptions
+export interface ExecutionBeforeRequestContext {
+  readonly hookContext: BeforeRequestContext
+  readonly normalizedOptions: NormalizedRequestOptions
+}
+
+export interface BeforeRequestContextSnapshot {
+  input: string | URL
+  url: URL
+  options: NormalizedRequestOptions
+  queryString?: string
 }
 
 export function createBeforeRequestContext(
@@ -34,30 +55,115 @@ export function createBeforeRequestContext(
   options: RequestOptions = {},
   attempt = 1,
 ): ExecutionBeforeRequestContext {
-  const url = resolveRequestURL(input, defaults.baseURL, options.query)
   const normalized = normalizeRequestOptions(defaults, options)
-  const body = resolveRequestBody(normalized)
-  validateRetryableBody(body, normalized.retry)
-  const maxAttempts = normalized.retry === false ? 1 : normalized.retry.attempts
-  const queryString = serializeQueryParams(normalized.query)
+  const queryString = serializeValidatedQueryParams(normalized.query)
+  const url = resolveRequestURLWithQueryString(
+    input,
+    defaults.baseURL,
+    queryString,
+  )
+  const resolvedBody = resolveRequestBody(normalized)
+  const maxAttempts = getEffectiveRetryAttempts(
+    normalized.method,
+    normalized.retry,
+  )
+  validateRetryableBody(resolvedBody, maxAttempts)
+  const body =
+    maxAttempts === 1 || resolvedBody === undefined
+      ? resolvedBody
+      : snapshotRequestBody(resolvedBody)
+
+  return createExecutionBeforeRequestContext({
+    attempt,
+    body,
+    input,
+    normalized,
+    queryString,
+    url,
+  })
+}
+
+export function snapshotBeforeRequestContext(
+  context: ExecutionBeforeRequestContext,
+): BeforeRequestContextSnapshot {
+  const { hookContext } = context
+  const options = cloneNormalizedRequestOptions(context.normalizedOptions)
+
+  delete options.json
+  if (hookContext.body !== undefined) {
+    options.body =
+      options.hooks.beforeRequest.length === 0
+        ? hookContext.body
+        : snapshotRequestBody(hookContext.body)
+  } else {
+    delete options.body
+  }
+
+  const snapshot: BeforeRequestContextSnapshot = {
+    input: cloneRequestInput(hookContext.input),
+    url: new URL(hookContext.url),
+    options,
+  }
+
+  if (hookContext.options.queryString !== undefined) {
+    snapshot.queryString = hookContext.options.queryString
+  }
+
+  return snapshot
+}
+
+export function createBeforeRequestContextFromSnapshot(
+  snapshot: BeforeRequestContextSnapshot,
+  attempt: number,
+): ExecutionBeforeRequestContext {
+  const normalized = cloneNormalizedRequestOptions(snapshot.options)
+  if (
+    normalized.body !== undefined &&
+    normalized.hooks.beforeRequest.length > 0
+  ) {
+    normalized.body = snapshotRequestBody(normalized.body)
+  }
+
+  return createExecutionBeforeRequestContext({
+    attempt,
+    body: normalized.body,
+    input: cloneRequestInput(snapshot.input),
+    normalized,
+    queryString: snapshot.queryString ?? '',
+    url: new URL(snapshot.url),
+  })
+}
+
+function createExecutionBeforeRequestContext(params: {
+  attempt: number
+  body: BodyInit | null | undefined
+  input: string | URL
+  normalized: NormalizedRequestOptions
+  queryString: string
+  url: URL
+}): ExecutionBeforeRequestContext {
+  const { attempt, body, input, normalized, queryString, url } = params
+  const maxAttempts = getEffectiveRetryAttempts(
+    normalized.method,
+    normalized.retry,
+  )
   const optionsView = createHookRequestOptions(normalized, {
     attempt,
     maxAttempts,
     ...(queryString === '' ? {} : { queryString }),
   })
 
-  const context: ExecutionBeforeRequestContext = {
+  const hookContext: BeforeRequestContext = {
     input,
     url,
     headers: normalized.headers,
-    _internalOptions: normalized,
     options: optionsView,
   }
 
   if (body !== undefined) {
-    // `body` remains readable to hooks, but execution uses `_internalOptions`
-    // so hook metadata cannot silently rewrite normalized behavior.
-    Object.defineProperty(context, 'body', {
+    // `body` remains readable to hooks, while execution keeps normalized
+    // behavior in the separate internal context record.
+    Object.defineProperty(hookContext, 'body', {
       configurable: false,
       enumerable: true,
       value: body,
@@ -65,63 +171,139 @@ export function createBeforeRequestContext(
     })
   }
 
-  Object.defineProperty(context, 'options', {
+  Object.defineProperty(hookContext, 'options', {
     configurable: false,
     enumerable: true,
     value: optionsView,
     writable: false,
   })
 
-  return context
+  return Object.freeze({
+    hookContext,
+    normalizedOptions: normalized,
+  })
+}
+
+function cloneNormalizedRequestOptions(
+  options: NormalizedRequestOptions,
+): NormalizedRequestOptions {
+  const snapshot: NormalizedRequestOptions = {
+    method: options.method,
+    headers: new Headers(options.headers),
+    responseType: options.responseType,
+    retry:
+      options.retry === false
+        ? false
+        : {
+            ...options.retry,
+            retryOnStatuses: [...options.retry.retryOnStatuses],
+            retryOnMethods: [...options.retry.retryOnMethods],
+          },
+    hooks: {
+      beforeRequest: [...options.hooks.beforeRequest],
+      afterResponse: [...options.hooks.afterResponse],
+      onError: [...options.hooks.onError],
+    },
+    parseJson: options.parseJson,
+  }
+
+  if (options.query !== undefined) {
+    snapshot.query = snapshotQueryInput(options.query)
+  }
+
+  if (options.body !== undefined) {
+    snapshot.body = options.body
+  }
+
+  if (Object.hasOwn(options, 'json')) {
+    snapshot.json = options.json
+  }
+
+  if (options.timeout !== undefined) {
+    snapshot.timeout = options.timeout
+  }
+
+  if (options.signal !== undefined) {
+    snapshot.signal = options.signal
+  }
+
+  return snapshot
+}
+
+function cloneRequestInput(input: string | URL): string | URL {
+  return typeof input === 'string' ? input : new URL(String(input))
 }
 
 export function buildRequestFromContext(
   context: ExecutionBeforeRequestContext,
   signal?: AbortSignal,
 ): Request {
-  if (!(context.url instanceof URL)) {
-    throw new ConfigError('beforeRequest URL overrides must be absolute URLs')
-  }
+  const { hookContext, normalizedOptions } = context
+
+  const requestURL = normalizeBeforeRequestURL(hookContext.url)
 
   const init: RequestInit = {
-    method: context._internalOptions.method,
-    headers: context.headers,
+    method: normalizedOptions.method,
+    headers: hookContext.headers,
   }
 
-  if (context.body !== undefined) {
-    init.body = context.body
+  if (hookContext.body !== undefined) {
+    init.body = hookContext.body
+    if (isReadableStream(hookContext.body)) {
+      Object.assign(init, { duplex: 'half' as const })
+    }
   }
 
   if (signal !== undefined) {
     init.signal = signal
-  } else if (context._internalOptions.signal !== undefined) {
-    init.signal = context._internalOptions.signal
+  } else if (normalizedOptions.signal !== undefined) {
+    init.signal = normalizedOptions.signal
   }
 
-  return new Request(context.url, init)
+  return new Request(requestURL, init)
 }
 
 export function normalizeRequestOptions(
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
 ): NormalizedRequestOptions {
-  const method = normalizeMethod(options.method ?? 'GET')
-  const timeout = normalizeTimeout(options.timeout ?? defaults.timeout)
+  validateOptionsContainer(defaults, 'defaults')
+  validateOptionsContainer(options, 'options')
+
+  const method = normalizeMethod(
+    options.method !== undefined ? options.method : 'GET',
+  )
+  const timeout = normalizeTimeout(
+    options.timeout !== undefined ? options.timeout : defaults.timeout,
+  )
   const responseType = normalizeResponseType(
-    options.responseType ?? defaults.responseType ?? 'json',
+    options.responseType !== undefined
+      ? options.responseType
+      : defaults.responseType !== undefined
+        ? defaults.responseType
+        : 'json',
   )
   const retry = normalizeRetry(defaults.retry, options.retry)
   const hooks = mergeHooks(defaults.hooks, options.hooks)
   const parseJson = normalizeParseJson(
-    options.parseJson ?? defaults.parseJson ?? DEFAULT_PARSE_JSON,
+    options.parseJson !== undefined
+      ? options.parseJson
+      : defaults.parseJson !== undefined
+        ? defaults.parseJson
+        : DEFAULT_PARSE_JSON,
   )
   const headers = mergeHeaders(defaults.headers, options.headers)
 
-  if (options.body !== undefined && options.json !== undefined) {
+  const hasJson = Object.hasOwn(options, 'json')
+
+  if (options.body !== undefined && hasJson) {
     throw new ConfigError('`body` and `json` cannot both be provided')
   }
 
-  if ((method === 'GET' || method === 'HEAD') && (options.body !== undefined || options.json !== undefined)) {
+  if (
+    (method === 'GET' || method === 'HEAD') &&
+    (options.body !== undefined || hasJson)
+  ) {
     throw new ConfigError(`\`${method}\` requests cannot include a request body`)
   }
 
@@ -139,17 +321,14 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
-    if (!isURLSearchParams(options.query)) {
-      validateQueryParams(options.query)
-    }
-    normalized.query = options.query
+    normalized.query = snapshotQueryInput(options.query)
   }
 
   if (options.body !== undefined) {
     normalized.body = options.body
   }
 
-  if (options.json !== undefined) {
+  if (hasJson) {
     normalized.json = options.json
   }
 
@@ -169,65 +348,38 @@ export function resolveRequestURL(
   baseURL?: string | URL,
   query?: QueryInput,
 ): URL {
+  return resolveRequestURLWithQueryString(
+    input,
+    baseURL,
+    serializeQueryParams(query),
+  )
+}
+
+function resolveRequestURLWithQueryString(
+  input: string | URL,
+  baseURL: string | URL | undefined,
+  queryString: string,
+): URL {
   const base = baseURL === undefined ? undefined : toAbsoluteURL(baseURL, 'Invalid base URL')
   const url = input instanceof URL ? new URL(input) : resolveInputURL(input, base)
 
-  applyQueryParams(url, query)
+  applyQueryString(url, queryString)
   return url
 }
 
-export function serializeQueryParams(query?: QueryInput): string {
-  if (query === undefined) {
-    return ''
-  }
-
-  if (isURLSearchParams(query)) {
-    return query.toString()
-  }
-
-  const params = new URLSearchParams()
-
-  for (const [key, value] of Object.entries(query)) {
-    if (value === undefined) {
-      continue
-    }
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        params.append(key, serializeScalarQueryValue(item))
-      }
-      continue
-    }
-
-    params.append(key, serializeScalarQueryValue(value))
-  }
-
-  return params.toString()
-}
-
-function applyQueryParams(url: URL, query?: QueryInput): void {
-  const serialized = serializeQueryParams(query)
-
-  if (serialized === '') {
-    return
-  }
-
-  const suffix = url.search === '' ? serialized : `&${serialized}`
-  url.search += suffix
-}
-
-function isURLSearchParams(value: unknown): value is URLSearchParams {
-  return value instanceof URLSearchParams
-}
+export { serializeQueryParams } from './query-params.js'
 
 function mergeHeaders(
   defaultHeaders?: HeadersInit,
   requestHeaders?: HeadersInit,
 ): Headers {
-  const headers = new Headers(defaultHeaders)
+  const headers = createHeaders(defaultHeaders)
 
   if (requestHeaders !== undefined) {
-    const overrideHeaders = new Headers(requestHeaders)
+    if (requestHeaders === null) {
+      throw new ConfigError('`headers` must not be null')
+    }
+    const overrideHeaders = createHeaders(requestHeaders)
 
     for (const [key, value] of overrideHeaders.entries()) {
       headers.set(key, value)
@@ -235,6 +387,29 @@ function mergeHeaders(
   }
 
   return headers
+}
+
+function createHeaders(headers?: HeadersInit): Headers {
+  try {
+    return new Headers(headers)
+  } catch (cause) {
+    if (cause instanceof TypeError) {
+      throw new ConfigError(
+        '`headers` must contain valid header names and values',
+        cause,
+      )
+    }
+    throw cause
+  }
+}
+
+function validateOptionsContainer(
+  value: unknown,
+  name: 'defaults' | 'options',
+): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ConfigError(`\`${name}\` must be an object`)
+  }
 }
 
 function normalizeMethod(method: unknown): RequestMethod {
@@ -254,7 +429,24 @@ function normalizeTimeout(timeout?: number): number | undefined {
     throw new ConfigError('`timeout` must be a non-negative finite number')
   }
 
+  if (timeout > MAX_TIMER_DELAY_MS) {
+    throw new ConfigError(
+      `\`timeout\` must be no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+  }
+
   return timeout
+}
+
+function normalizeBeforeRequestURL(value: unknown): URL {
+  try {
+    return new URL(URL.prototype.toString.call(value as URL))
+  } catch (cause) {
+    throw new ConfigError(
+      'beforeRequest URL overrides must be absolute URLs',
+      cause,
+    )
+  }
 }
 
 function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
@@ -305,7 +497,7 @@ function toAbsoluteURL(value: string | URL, message: string): URL {
 function resolveRequestBody(
   options: Pick<NormalizedRequestOptions, 'body' | 'headers' | 'json'>,
 ): BodyInit | null | undefined {
-  if (options.json === undefined) {
+  if (!Object.hasOwn(options, 'json')) {
     return options.body
   }
 
@@ -313,66 +505,33 @@ function resolveRequestBody(
     options.headers.set('Content-Type', 'application/json')
   }
 
-  return JSON.stringify(options.json)
-}
-
-function serializeScalarQueryValue(
-  value: PrimitiveQueryValue,
-): string {
-  if (value === null) {
-    return 'null'
-  }
-
-  return String(value)
-}
-
-function validateQueryParams(query: QueryParams): void {
-  for (const [key, value] of Object.entries(query)) {
-    validateQueryValue(key, value)
-  }
-}
-
-function validateQueryValue(key: string, value: QueryParams[string]): void {
-  if (value === undefined) {
-    return
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      validateQueryScalarValue(key, item)
+  try {
+    const body = JSON.stringify(options.json)
+    if (body === undefined) {
+      throw new ConfigError('`json` must serialize to a JSON value')
     }
-    return
+    return body
+  } catch (cause) {
+    if (cause instanceof ConfigError) {
+      throw cause
+    }
+    if (cause instanceof TypeError) {
+      throw new ConfigError('`json` must serialize to a JSON value', cause)
+    }
+    throw cause
   }
-
-  validateQueryScalarValue(key, value)
-}
-
-function validateQueryScalarValue(key: string, value: unknown): void {
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return
-  }
-
-  throw new ConfigError(
-    `Unsupported query value for \`${key}\`; only string, number, boolean, null, arrays, and undefined are allowed`,
-  )
 }
 
 function validateRetryableBody(
   body: BodyInit | null | undefined,
-  retry: NormalizedRequestOptions['retry'],
+  maxAttempts: number,
 ): void {
-  if (retry === false || body === undefined || body === null) {
+  if (maxAttempts === 1 || body === undefined || body === null) {
     return
   }
 
   if (
-    typeof ReadableStream !== 'undefined' &&
-    body instanceof ReadableStream
+    isReadableStream(body)
   ) {
     throw new ConfigError(
       'Retry is not supported for streaming request bodies',

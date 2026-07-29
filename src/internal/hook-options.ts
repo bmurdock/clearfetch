@@ -74,19 +74,30 @@ export interface HookLifecycleMetadata {
 }
 
 function isURLSearchParams(value: unknown): value is URLSearchParams {
-  return value instanceof URLSearchParams
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  try {
+    URLSearchParams.prototype.toString.call(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function freezeQueryParams(query: QueryParams): QueryParams {
   const snapshot: QueryParams = {}
 
   for (const [key, value] of Object.entries(query)) {
-    if (Array.isArray(value)) {
-      snapshot[key] = Object.freeze([...value]) as PrimitiveQueryValue[]
-      continue
-    }
-
-    snapshot[key] = value
+    Object.defineProperty(snapshot, key, {
+      configurable: true,
+      enumerable: true,
+      value: Array.isArray(value)
+        ? Object.freeze([...value]) as PrimitiveQueryValue[]
+        : value,
+      writable: true,
+    })
   }
 
   return Object.freeze(snapshot)

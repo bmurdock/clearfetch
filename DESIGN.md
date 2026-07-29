@@ -161,11 +161,20 @@ This package is designed for modern JavaScript runtimes that provide native `fet
 
 The minimum supported Node.js version should be declared in `package.json` under `engines`. The implementation should target only runtimes that satisfy that requirement.
 
+The published declaration surface supports TypeScript 5.0 and newer. CI must
+compile a consumer fixture with the minimum supported TypeScript version so
+type-surface changes do not silently raise that floor.
+
 ### Module strategy
 
 The package is designed as a modern module-first library. Export behavior must be explicit and restricted through `package.json` export maps.
 
 The package should not expose internal implementation paths.
+
+The npm artifact ships JavaScript source maps for mapped stack traces. It does
+not ship declaration maps because TypeScript source files are not included in
+the package. Packed bytes, unpacked bytes, and file count are bounded by
+deliberate package-smoke budgets so the small-package goal remains measurable.
 
 ---
 
@@ -336,6 +345,9 @@ Client defaults may include:
 - default hooks
 - default JSON parser
 
+Mutable default inputs are snapshotted when the client is created. This includes
+`URL` values created in another browser realm.
+
 ### Validation rules
 
 Validation must occur before the request is executed.
@@ -345,10 +357,13 @@ Invalid configurations must fail fast with a configuration error.
 Examples of invalid configurations include:
 
 - both `body` and `json` provided
+- invalid option or default containers
+- invalid header names or values
 - negative timeout
+- timeout or retry-delay values above the platform timer maximum of `2,147,483,647` milliseconds
 - malformed base URL
 - unsupported response type
-- invalid retry values
+- invalid retry values, including explicit `null` nested fields
 
 Strict validation is desirable. Silent coercion should be avoided unless it is trivial and unsurprising.
 
@@ -481,6 +496,7 @@ Rules:
 - `json` and `body` are mutually exclusive
 - when `json` is provided, the package serializes it with `JSON.stringify`
 - if `Content-Type` is not already set, it is set to `application/json`
+- values for which `JSON.stringify` returns `undefined` or throws `TypeError` fail with `ConfigError` before network execution; other caller-owned exceptions encountered during serialization, including from `toJSON` or property access, propagate as-is
 
 The package should not perform schema validation or content introspection beyond what is necessary for consistent behavior.
 
@@ -509,6 +525,8 @@ The package supports explicit response parsing modes:
 The default response type should be `json` unless explicitly changed. This reflects the most common modern use case and offers practical convenience.
 
 This default must be clearly documented because it differs from raw fetch semantics.
+Client types must track an explicitly configured default response type so calls
+without a request-level override retain the correct result type.
 
 ### JSON parsing behavior
 
@@ -529,7 +547,7 @@ When `responseType` is `json`, an empty response body yields `undefined`.
 
 For this purpose, a response body is considered empty if reading it yields an empty string.
 
-This applies to `204`, `205`, and `304` responses and to other successful responses whose body is empty.
+This applies to `204`, `205`, and other successful responses whose body is empty. A `304` remains a non-2xx response and therefore throws `HttpError`.
 
 As a result, JSON responses are typed as `T | undefined` rather than `T` alone.
 
@@ -648,6 +666,7 @@ A timeout means:
 - the package creates an internal abort controller
 - the controller aborts once the configured timeout elapses
 - timeout expiration produces a `TimeoutError`
+- after the timer starts, timeout classification remains authoritative through `afterResponse` hooks and response parsing
 
 ### External abort model
 
@@ -702,7 +721,8 @@ Permitted uses:
 
 Runs immediately after a response is received and before success parsing is returned to the consumer.
 
-`afterResponse` always receives the raw `Response`, including non-2xx responses that may later be classified as `HttpError`.
+Each `afterResponse` hook receives its own clone of the raw `Response`,
+including non-2xx responses that may later be classified as `HttpError`.
 
 Permitted uses:
 
@@ -714,7 +734,7 @@ Permitted uses:
 
 Runs after a failure has been classified but before it is re-thrown to the caller.
 
-For transport, timeout, external abort, HTTP, and parse failures, `onError` receives the normalized package error after classification has occurred.
+For transport, timeout, external abort, HTTP, and parse failures, `onError` receives the normalized package error after classification has occurred. This includes external aborts that occur during retry backoff.
 
 For hook failures and request-construction failures, `onError` receives the error as thrown. This preserves the package's explicit-failure posture without wrapping consumer hook bugs or configuration failures as misleading network-layer errors.
 
@@ -760,7 +780,7 @@ In particular:
 - hook metadata exposed through `context.options` is read-only and must not act as a hidden mutation surface
 - hook metadata includes current attempt counts for application-owned logging and metrics
 
-If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute URL. Relative replacement URLs are invalid and must fail with `ConfigError`.
+If a `beforeRequest` hook replaces the URL, the replacement must be a fully resolved absolute `URL`. URLs from another browser realm are valid; relative replacement URLs are invalid and must fail with `ConfigError`.
 
 When a hook replaces the URL, that replacement becomes the final URL for the request and overrides any previously resolved URL, including query parameters.
 
@@ -798,11 +818,27 @@ When enabled, retries should default to safe cases such as:
 - selected HTTP statuses such as `429`, `502`, `503`, `504`
 - replayable request bodies only
 
+Retry execution must snapshot the initially normalized URL, headers, retry
+policy, and body before the first attempt. JSON is serialized once so later
+attempts replay the same payload rather than re-reading caller-owned state.
+Query values are likewise read and validated once during request normalization,
+and the resulting snapshot supplies both URL serialization and hook metadata.
+
 ### Unsafe scenarios
 
 The package should not automatically retry unsafe methods such as `POST`, `PUT`, `PATCH`, or `DELETE` unless the caller explicitly configures that behavior.
 
-Version 1 must also reject retry-enabled execution for streaming request bodies. Retries must not assume that all bodies can be replayed safely.
+Version 1 must also reject retry-eligible execution for streaming request bodies. A configured retry policy does not make an excluded method retryable, and retries must not assume that all bodies can be replayed safely.
+
+Form data files must be copied without coercing their contents or metadata. If
+the current runtime cannot safely clone a file value from another realm or
+implementation, normalization must reject the retryable request rather than
+silently replaying a different payload.
+
+Form data replay guarantees equivalent field values and file contents, names,
+and media types. It does not guarantee byte-identical multipart encoding because
+the platform may generate a new boundary for each `Request`. Consumers that sign
+exact request bytes must pre-serialize the body or disable retries for it.
 
 ### Backoff behavior
 
@@ -829,7 +865,7 @@ This is simpler to implement and reason about. If a future version introduces to
 
 Retry behavior should be visible to hook contexts where practical so consuming applications can log and understand repeated attempts.
 
-Hooks expose the current attempt through `context.options.attempt` and the configured attempt ceiling through `context.options.maxAttempts`. When the request `query` option serializes to a non-empty string, hooks also receive `context.options.queryString` without a leading `?`; URL search parameters already present in the input remain visible through `context.url`. Applications own any logging, metrics, or tracing behavior built from that metadata.
+Hooks expose the current attempt through `context.options.attempt` and the effective attempt ceiling after method eligibility through `context.options.maxAttempts`. When the request `query` option serializes to a non-empty string, hooks also receive `context.options.queryString` without a leading `?`; URL search parameters already present in the input remain visible through `context.url`. Applications own any logging, metrics, or tracing behavior built from that metadata.
 
 ### Retry classification
 
@@ -890,6 +926,12 @@ The repository and release process should include:
 - CI-based publishing
 - npm 2FA
 - signed tags where practical
+- full-SHA GitHub Actions pins and non-persisted checkout credentials
+- lockfile origin and integrity validation before dependency installation
+- lifecycle-script-free dependency installation in automation
+- dependency advisory, signature, and attestation checks
+- publication of the exact verified tarball with npm provenance
+- separate npm publication and GitHub Release privileges
 - strict package export maps
 - files whitelisting in published package artifacts
 - a `SECURITY.md` disclosure policy
@@ -932,6 +974,7 @@ Examples:
 * discourage simultaneous `body` and `json`
 * reject body shapes on `GET` and `HEAD`
 * constrain response-type values
+* preserve client-level default response types in method return types
 * strongly type hook contexts and retry configuration
 
 Runtime validation still remains necessary, especially for JavaScript callers and intentionally invalid test inputs. Invalid body combinations should be guarded both by public TypeScript types and runtime validation.
@@ -969,6 +1012,8 @@ Recommended internal responsibilities include:
 
 * option validation
 * URL construction
+* query serialization
+* platform-native value detection and body snapshotting
 * header merging
 * request construction
 * timeout and signal composition
@@ -1006,6 +1051,7 @@ The following invariants are part of the design contract.
 
 * request-level options override client defaults
 * header merging is deterministic
+* retry attempts do not re-read caller-owned request configuration
 * `json` and `body` are mutually exclusive
 * invalid configuration fails before network execution
 * timeout timers are always cleaned up
@@ -1024,6 +1070,7 @@ The following invariants are part of the design contract.
 * hooks run in definition order
 * hook failures are not swallowed
 * `onError` runs after failure classification and before re-throw
+* retry-backoff aborts run through `onError` exactly once
 * hook and request-construction failures are surfaced as thrown
 
 ### Retry invariants

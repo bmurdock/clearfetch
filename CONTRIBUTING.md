@@ -11,18 +11,27 @@ Thanks for the interest in improving `clearfetch`.
 
 ## Development
 
-- `npm install`
+- `npm ci --ignore-scripts --registry=https://registry.npmjs.org`
 - `npm run lint`
 - `npm test`
 - `npm run test:browser-like`
+- `node node_modules/playwright/cli.js install chromium` once before the first real-browser test
+- `npm run test:browser-real`
+- `npm run test:types-compat`
 - `npm run build`
+- `npm run check:lockfile`
 - `npm run check:package-metadata`
 - `npm run check:pack-smoke`
+- `npm run check:publish-dry-run` for release-path changes
 
-For dependency changes, also run the relevant audit command, usually:
+For dependency or lockfile changes, also run:
 
-- `npm audit --registry=https://registry.npmjs.org`
-- `npm audit --omit=dev --registry=https://registry.npmjs.org`
+- `npm run check:dependency-audit`
+- `npm run check:dependency-signatures`
+
+Do not add a lockfile source outside the public npm registry or a new package
+with an install script without an explicit security review. The automated
+lockfile check deliberately fails those changes.
 
 Changes should keep the public API, docs, tests, and runtime behavior aligned.
 

@@ -1,6 +1,6 @@
 {
   "name": "@gavoryn/clearfetch",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript runtimes.",
   "type": "module",
   "sideEffects": false,
@@ -19,12 +19,18 @@
     }
   },
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
+    "check:dependency-audit": "npm audit --audit-level=moderate --registry=https://registry.npmjs.org",
+    "check:dependency-signatures": "npm audit signatures --registry=https://registry.npmjs.org",
+    "check:lockfile": "node scripts/check-lockfile.mjs",
     "check:package-metadata": "node scripts/check-package-metadata.mjs",
     "check:pack-smoke": "node scripts/check-pack-smoke.mjs",
-    "lint": "tsc --noEmit -p tsconfig.json",
+    "check:publish-dry-run": "node scripts/check-publish-dry-run.mjs",
+    "lint": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
-    "test:browser-like": "tsx --test test/browser-like.test.ts"
+    "test:browser-like": "tsx --test test/browser-like.browser.ts",
+    "test:browser-real": "npm run build && tsx --test test/browser-real.browser.ts",
+    "test:types-compat": "npm run build && node node_modules/typescript-v5/bin/tsc -p test/tsconfig.types-compat.json"
   },
   "keywords": [
     "fetch",
@@ -46,8 +52,10 @@
   "devDependencies": {
     "@types/node": "^24.5.2",
     "happy-dom": "^20.8.9",
+    "playwright": "1.61.1",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "typescript-v5": "npm:typescript@5.0.4"
   },
   "overrides": {
     "esbuild": "0.28.1",

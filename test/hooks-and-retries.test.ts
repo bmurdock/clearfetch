@@ -184,6 +184,233 @@ test('timeout starts after beforeRequest hooks complete', async () => {
   }
 })
 
+test('timeout expiration during afterResponse hooks surfaces TimeoutError', async () => {
+  const originalFetch = globalThis.fetch
+  let observedError: unknown
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          timeout: 5,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+              },
+            ],
+            onError: [
+              (context) => {
+                observedError = context.error
+              },
+            ],
+          },
+        }),
+      (error) => error instanceof TimeoutError && error.timeout === 5,
+    )
+
+    assert.ok(observedError instanceof TimeoutError)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('timeout aborts from afterResponse body reads are normalized', async () => {
+  const originalFetch = globalThis.fetch
+  let observedError: unknown
+
+  globalThis.fetch = async (input) => {
+    const request = input as Request
+    const body = new ReadableStream({
+      start(controller) {
+        request.signal.addEventListener(
+          'abort',
+          () => controller.error(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        )
+      },
+    })
+    return new Response(body)
+  }
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          timeout: 5,
+          hooks: {
+            afterResponse: [
+              async (context) => {
+                await context.response.text()
+              },
+            ],
+            onError: [
+              (context) => {
+                observedError = context.error
+              },
+            ],
+          },
+        }),
+      (error) => error instanceof TimeoutError && error.timeout === 5,
+    )
+
+    assert.ok(observedError instanceof TimeoutError)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external aborts during afterResponse hooks stay AbortRequestError', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  const reason = new Error('stop response inspection')
+  let observedError: unknown
+
+  globalThis.fetch = async (input) => {
+    const request = input as Request
+    const body = new ReadableStream({
+      start(streamController) {
+        request.signal.addEventListener(
+          'abort',
+          () => streamController.error(request.signal.reason),
+          { once: true },
+        )
+      },
+    })
+    return new Response(body)
+  }
+
+  const abortId = setTimeout(() => controller.abort(reason), 5)
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          signal: controller.signal,
+          hooks: {
+            afterResponse: [
+              async (context) => {
+                await context.response.text()
+              },
+            ],
+            onError: [
+              (context) => {
+                observedError = context.error
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof AbortRequestError &&
+        error.cause === reason,
+    )
+
+    assert.ok(observedError instanceof AbortRequestError)
+    assert.equal(observedError.cause, reason)
+  } finally {
+    clearTimeout(abortId)
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('timeout classification overrides clearfetch errors thrown by afterResponse hooks', async () => {
+  const originalFetch = globalThis.fetch
+  const hookError = new ConfigError('late hook failure')
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          timeout: 5,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                throw hookError
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof TimeoutError &&
+        error.timeout === 5 &&
+        error.cause === hookError,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('external abort classification overrides clearfetch errors thrown by afterResponse hooks', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+  const reason = new Error('stop response inspection')
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  const abortId = setTimeout(() => controller.abort(reason), 5)
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          signal: controller.signal,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                throw new ConfigError('late hook failure')
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof AbortRequestError &&
+        error.cause === reason,
+    )
+  } finally {
+    clearTimeout(abortId)
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('afterResponse abort classification preserves an explicit null reason', async () => {
+  const originalFetch = globalThis.fetch
+  const controller = new AbortController()
+
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ ok: true }))
+
+  const abortId = setTimeout(() => controller.abort(null), 5)
+  try {
+    await assert.rejects(
+      () =>
+        request('https://api.example.com/users', {
+          signal: controller.signal,
+          hooks: {
+            afterResponse: [
+              async () => {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+                throw new ConfigError('late hook failure')
+              },
+            ],
+          },
+        }),
+      (error) =>
+        error instanceof AbortRequestError &&
+        error.cause === null,
+    )
+  } finally {
+    clearTimeout(abortId)
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('external abort surfaces AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input) =>
@@ -600,7 +827,7 @@ test('beforeRequest hooks can inspect serialized query metadata', async () => {
   }
 })
 
-test('retry attempts rebuild POST json bodies after the first attempt', async () => {
+test('retry attempts reuse one serialized POST json body', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0
   let stringifyCalls = 0
@@ -609,7 +836,7 @@ test('retry attempts rebuild POST json bodies after the first attempt', async ()
   const payload = {
     toJSON() {
       stringifyCalls += 1
-      return { ok: true }
+      return { serialization: stringifyCalls }
     },
   }
 
@@ -644,69 +871,167 @@ test('retry attempts rebuild POST json bodies after the first attempt', async ()
 
     assert.deepEqual(result, { ok: true })
     assert.equal(attempts, 2)
-    assert.equal(stringifyCalls, 2)
-    assert.deepEqual(seenBodies, ['{"ok":true}', '{"ok":true}'])
+    assert.equal(stringifyCalls, 1)
+    assert.deepEqual(seenBodies, [
+      '{"serialization":1}',
+      '{"serialization":1}',
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }
 })
 
-test('onError observes retry attempt request rebuild failures before rethrow', async () => {
+test('retry attempts do not reread mutable request headers or query', async () => {
   const originalFetch = globalThis.fetch
-  const observedErrors: unknown[] = []
-  let attempts = 0
-  let stringifyCalls = 0
-
-  const payload = {
-    toJSON() {
-      stringifyCalls += 1
-      if (stringifyCalls === 2) {
-        throw new Error('cannot replay payload')
-      }
-      return { ok: true }
-    },
+  const headers = new Headers({
+    'X-Request-Version': 'initial',
+  })
+  const query = {
+    version: 'initial',
   }
+  let attempts = 0
+  const seenRequests: Array<{ header: string | null; url: string }> = []
 
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (input) => {
     attempts += 1
-    return new Response('retry', {
-      status: 503,
-      statusText: 'Service Unavailable',
+    const req = input as Request
+    seenRequests.push({
+      header: req.headers.get('x-request-version'),
+      url: req.url,
     })
+
+    if (attempts === 1) {
+      headers.set('X-Request-Version', 'mutated')
+      query.version = 'mutated'
+
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
   }
 
   try {
-    await assert.rejects(
-      () =>
-        request('https://api.example.com/users', {
-          method: 'POST',
-          json: payload,
-          hooks: {
-            onError: [
-              async (context) => {
-                observedErrors.push(context.error)
-              },
-            ],
-          },
-          retry: {
-            attempts: 2,
-            backoffMs: 1,
-            maxBackoffMs: 1,
-            multiplier: 1,
-            retryOnStatuses: [503],
-            retryOnMethods: ['POST'],
-          },
-        }),
-      (error) =>
-        error instanceof Error &&
-        error.message === 'cannot replay payload',
-    )
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      headers,
+      query,
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['GET'],
+      },
+    })
 
-    assert.equal(attempts, 1)
-    assert.equal(stringifyCalls, 2)
-    assert.equal(observedErrors.length, 1)
-    assert.ok(observedErrors[0] instanceof Error)
-    assert.equal((observedErrors[0] as Error).message, 'cannot replay payload')
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(seenRequests, [
+      {
+        header: 'initial',
+        url: 'https://api.example.com/users?version=initial',
+      },
+      {
+        header: 'initial',
+        url: 'https://api.example.com/users?version=initial',
+      },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry decisions use an initial snapshot of caller-owned policy arrays', async () => {
+  const originalFetch = globalThis.fetch
+  const retryOnStatuses = [503]
+  const retryOnMethods: Array<'GET'> = ['GET']
+  let attempts = 0
+
+  globalThis.fetch = async () => {
+    attempts += 1
+
+    if (attempts === 1) {
+      retryOnStatuses[0] = 500
+      retryOnMethods.length = 0
+
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      retry: {
+        attempts: 2,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses,
+        retryOnMethods,
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(attempts, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retry attempts isolate mutable raw bodies from prior hook mutations', async () => {
+  const originalFetch = globalThis.fetch
+  const seenBodies: string[] = []
+  let attempts = 0
+
+  globalThis.fetch = async (input) => {
+    attempts += 1
+    const req = input as Request
+    seenBodies.push(await req.clone().text())
+
+    if (attempts < 3) {
+      return new Response('retry', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  try {
+    const result = await request<{ ok: boolean }>('https://api.example.com/users', {
+      method: 'POST',
+      body: new URLSearchParams({ value: 'base' }),
+      hooks: {
+        beforeRequest: [
+          (context) => {
+            assert.ok(context.body instanceof URLSearchParams)
+            context.body.append('hook', String(context.options.attempt))
+          },
+        ],
+      },
+      retry: {
+        attempts: 3,
+        backoffMs: 1,
+        maxBackoffMs: 1,
+        multiplier: 1,
+        retryOnStatuses: [503],
+        retryOnMethods: ['POST'],
+      },
+    })
+
+    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(seenBodies, [
+      'value=base&hook=1',
+      'value=base&hook=2',
+      'value=base&hook=3',
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -759,9 +1084,63 @@ test('retryable HTTP responses do not read body text before retrying', async () 
   )
 })
 
+test('retryable HTTP responses cancel bodies after observational response hooks', async () => {
+  let attempts = 0
+  let abandonedAttempts = 0
+
+  const fetchImpl: typeof fetch = async (input) => {
+    attempts += 1
+
+    if (attempts === 1) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('retry'))
+          const request = input as Request
+          request.signal.addEventListener(
+            'abort',
+            () => {
+              abandonedAttempts += 1
+              controller.error(request.signal.reason)
+            },
+            { once: true },
+          )
+        },
+      }), {
+        status: 503,
+        statusText: 'Service Unavailable',
+      })
+    }
+
+    return new Response(JSON.stringify({ ok: true }))
+  }
+
+  await withMockedFetch(fetchImpl, async () => {
+    const result = await request<{ ok: boolean }>(
+      'https://api.example.com/users',
+      {
+        hooks: {
+          afterResponse: [() => undefined],
+        },
+        retry: {
+          attempts: 2,
+          backoffMs: 1,
+          maxBackoffMs: 1,
+          multiplier: 1,
+          retryOnStatuses: [503],
+          retryOnMethods: ['GET'],
+        },
+      },
+    )
+
+    assert.deepEqual(result, { ok: true })
+    assert.equal(abandonedAttempts, 1)
+  })
+})
+
 test('abort during HTTP retry backoff stops promptly with AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
   const controller = new AbortController()
+  const observedErrors: unknown[] = []
   let attempts = 0
 
   globalThis.fetch = async () => {
@@ -775,6 +1154,13 @@ test('abort during HTTP retry backoff stops promptly with AbortRequestError', as
   try {
     const promise = request('https://api.example.com/users', {
       signal: controller.signal,
+      hooks: {
+        onError: [
+          (context) => {
+            observedErrors.push(context.error)
+          },
+        ],
+      },
       retry: {
         attempts: 2,
         backoffMs: 50,
@@ -792,6 +1178,8 @@ test('abort during HTTP retry backoff stops promptly with AbortRequestError', as
       (error) => error instanceof AbortRequestError,
     )
     assert.equal(attempts, 1)
+    assert.equal(observedErrors.length, 1)
+    assert.ok(observedErrors[0] instanceof AbortRequestError)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -954,6 +1342,7 @@ test('retry runs for network failures when method is eligible', async () => {
 
 test('abort during retry backoff stops promptly with AbortRequestError', async () => {
   const originalFetch = globalThis.fetch
+  const observedErrors: unknown[] = []
   let attempts = 0
 
   globalThis.fetch = async () => {
@@ -967,6 +1356,13 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
 
     const promise = request('https://api.example.com/users', {
       signal: controller.signal,
+      hooks: {
+        onError: [
+          (context) => {
+            observedErrors.push(context.error)
+          },
+        ],
+      },
       retry: {
         attempts: 3,
         backoffMs: 500,
@@ -987,6 +1383,8 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
     )
 
     assert.equal(attempts, 1)
+    assert.equal(observedErrors.length, 1)
+    assert.ok(observedErrors[0] instanceof AbortRequestError)
     assert.ok(Date.now() - startedAt < 250)
   } finally {
     globalThis.fetch = originalFetch
@@ -1102,6 +1500,49 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
       assert.ok(seenErrors[0] instanceof Error)
       assert.equal((seenErrors[0] as Error).message, 'afterResponse failure')
       assert.deepEqual(seenStatuses, [200])
+    },
+  )
+})
+
+test('afterResponse hook failures cancel the abandoned response body', async () => {
+  let abandonedAttempts = 0
+
+  await withMockedFetch(
+    async (input) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('response'))
+            const request = input as Request
+            request.signal.addEventListener(
+              'abort',
+              () => {
+                abandonedAttempts += 1
+                controller.error(request.signal.reason)
+              },
+              { once: true },
+            )
+          },
+        }),
+      ),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async () => {
+              throw new Error('afterResponse failure')
+            },
+          ],
+        },
+      })
+
+      await assert.rejects(
+        () => client.get('https://api.example.com/users'),
+        (error) =>
+          error instanceof Error && error.message === 'afterResponse failure',
+      )
+
+      assert.equal(abandonedAttempts, 1)
     },
   )
 })
@@ -1224,6 +1665,35 @@ test('afterResponse may read the response body without breaking json parsing', a
   )
 })
 
+test('afterResponse hooks receive independently readable response bodies', async () => {
+  const seenBodies: string[] = []
+
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          afterResponse: [
+            async (context) => {
+              seenBodies.push(await context.response.text())
+            },
+            async (context) => {
+              seenBodies.push(await context.response.text())
+            },
+          ],
+        },
+      })
+
+      const result = await client.get<{ ok: boolean }>(
+        'https://api.example.com/users',
+      )
+
+      assert.deepEqual(seenBodies, ['{"ok":true}', '{"ok":true}'])
+      assert.deepEqual(result, { ok: true })
+    },
+  )
+})
+
 test('beforeRequest cannot mutate execution options through context.options', async () => {
   await withMockedFetch(
     async () => new Response(JSON.stringify({ ok: true })),
@@ -1242,6 +1712,35 @@ test('beforeRequest cannot mutate execution options through context.options', as
         () => client.get('https://api.example.com/users'),
         (error) => error instanceof TypeError,
       )
+    },
+  )
+})
+
+test('beforeRequest hook contexts do not expose internal execution state', async () => {
+  let hasInternalOptions = true
+  let contextKeys: string[] = []
+
+  await withMockedFetch(
+    async () => new Response(JSON.stringify({ ok: true })),
+    async () => {
+      const client = createClient({
+        hooks: {
+          beforeRequest: [
+            async (context) => {
+              hasInternalOptions = Object.hasOwn(context, '_internalOptions')
+              contextKeys = Object.keys(context)
+            },
+          ],
+        },
+      })
+
+      const result = await client.get<{ ok: boolean }>(
+        'https://api.example.com/users',
+      )
+
+      assert.equal(hasInternalOptions, false)
+      assert.equal(contextKeys.includes('_internalOptions'), false)
+      assert.deepEqual(result, { ok: true })
     },
   )
 })

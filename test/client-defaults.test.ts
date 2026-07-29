@@ -94,7 +94,14 @@ test('snapshotClientDefaults preserves property insertion order', () => {
   ])
 })
 
-test('snapshotClientDefaults rejects invalid hook defaults', () => {
+test('snapshotClientDefaults rejects invalid defaults', () => {
+  assert.throws(
+    () => snapshotClientDefaults(null as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`defaults` must be an object',
+  )
+
   assert.throws(
     () =>
       snapshotClientDefaults({
@@ -117,6 +124,67 @@ test('snapshotClientDefaults rejects invalid hook defaults', () => {
     (error) =>
       error instanceof ConfigError &&
       error.message === '`hooks.onError` must be an array of functions',
+  )
+
+  assert.throws(
+    () =>
+      snapshotClientDefaults({
+        hooks: null,
+      } as never),
+    (error) =>
+      error instanceof ConfigError && error.message === '`hooks` must be an object',
+  )
+
+  assert.throws(
+    () =>
+      snapshotClientDefaults({
+        retry: null,
+      } as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`retry` must be false or an object',
+  )
+
+  for (const { defaults, message } of [
+    {
+      defaults: { baseURL: null },
+      message: '`baseURL` must be a string or URL',
+    },
+    {
+      defaults: { headers: null },
+      message: '`headers` must not be null',
+    },
+  ]) {
+    assert.throws(
+      () => snapshotClientDefaults(defaults as never),
+      (error) => error instanceof ConfigError && error.message === message,
+    )
+  }
+
+  assert.throws(
+    () =>
+      snapshotClientDefaults({
+        headers: {
+          'bad header': 'value',
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`headers` must contain valid header names and values' &&
+      error.cause instanceof TypeError,
+  )
+
+  assert.throws(
+    () =>
+      snapshotClientDefaults({
+        retry: {
+          retryOnStatuses: null,
+        },
+      } as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message ===
+        '`retry.retryOnStatuses` must be an array of status codes',
   )
 })
 
@@ -143,6 +211,55 @@ test('mergeClientDefaults lets child scalar defaults override parent defaults', 
   assert.equal(merged.timeout, 2000)
   assert.equal(merged.responseType, 'text')
   assert.deepEqual(merged.parseJson?.('ok'), { text: 'ok' })
+})
+
+test('mergeClientDefaults rejects null child overrides', () => {
+  const parent = {
+    baseURL: 'https://parent.example.com',
+    headers: { accept: 'application/json' },
+    timeout: 1_000,
+    responseType: 'text' as const,
+    retry: { attempts: 2 },
+    hooks: { beforeRequest: [() => undefined] },
+    parseJson: () => 42,
+  }
+  const cases = [
+    {
+      child: { baseURL: null },
+      message: '`baseURL` must be a string or URL',
+    },
+    {
+      child: { headers: null },
+      message: '`headers` must not be null',
+    },
+    {
+      child: { timeout: null },
+      message: '`timeout` must be a non-negative finite number',
+    },
+    {
+      child: { responseType: null },
+      message: 'Unsupported responseType: null',
+    },
+    {
+      child: { retry: null },
+      message: '`retry` must be false or an object',
+    },
+    {
+      child: { hooks: null },
+      message: '`hooks` must be an object',
+    },
+    {
+      child: { parseJson: null },
+      message: '`parseJson` must be a function',
+    },
+  ]
+
+  for (const { child, message } of cases) {
+    assert.throws(
+      () => mergeClientDefaults(parent, child as never),
+      (error) => error instanceof ConfigError && error.message === message,
+    )
+  }
 })
 
 test('mergeClientDefaults merges headers and appends hooks parent then child', () => {

@@ -29,18 +29,26 @@ export function mergeHooks(
 }
 
 export function normalizeBeforeRequestHooks(hooks?: Hooks): BeforeRequestHook[] {
-  return normalizeHookList(hooks?.beforeRequest, 'beforeRequest') as BeforeRequestHook[]
+  return normalizeHookList(hooks, 'beforeRequest') as BeforeRequestHook[]
 }
 
 export function normalizeAfterResponseHooks(hooks?: Hooks): AfterResponseHook[] {
-  return normalizeHookList(hooks?.afterResponse, 'afterResponse') as AfterResponseHook[]
+  return normalizeHookList(hooks, 'afterResponse') as AfterResponseHook[]
 }
 
 export function normalizeOnErrorHooks(hooks?: Hooks): OnErrorHook[] {
-  return normalizeHookList(hooks?.onError, 'onError') as OnErrorHook[]
+  return normalizeHookList(hooks, 'onError') as OnErrorHook[]
 }
 
-function normalizeHookList(value: unknown, key: keyof Hooks): HookList {
+function normalizeHookList(hooks: Hooks | undefined, key: keyof Hooks): HookList {
+  if (
+    hooks !== undefined &&
+    (typeof hooks !== 'object' || hooks === null || Array.isArray(hooks))
+  ) {
+    throw new ConfigError('`hooks` must be an object')
+  }
+
+  const value = hooks?.[key]
   if (value === undefined) {
     return []
   }

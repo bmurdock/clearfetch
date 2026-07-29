@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -7,18 +7,29 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const rootDir = process.cwd()
-const tscPath = path.join(rootDir, 'node_modules', '.bin', 'tsc')
+const tscPath = path.join(rootDir, 'node_modules', 'typescript', 'bin', 'tsc')
+const retainTarball = process.argv.includes('--retain')
+const unexpectedArguments = process.argv.slice(2).filter((argument) => argument !== '--retain')
+const MAX_PACKED_BYTES = 50_000
+const MAX_UNPACKED_BYTES = 175_000
+const MAX_PACKED_FILES = 65
 
-const { stdout } = await execFileAsync('npm', ['pack', '--json'], {
+if (unexpectedArguments.length > 0) {
+  throw new Error(`unexpected arguments: ${unexpectedArguments.join(', ')}`)
+}
+
+const { stdout } = await execFileAsync('npm', ['pack', '--json', '--ignore-scripts'], {
   cwd: rootDir,
 })
 const [packResult] = JSON.parse(stdout)
 const tarballPath = path.join(rootDir, packResult.filename)
 
 assertPackedFiles(packResult.files)
+assertPackedSize(packResult)
 
 const packageName = '@gavoryn/clearfetch'
 const tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
+let tarballRetained = false
 
 try {
   const importSmokeFile = path.join(tempDir, 'smoke-import.mjs')
@@ -120,6 +131,23 @@ try {
       'const jsonPromise: Promise<{ ok: boolean } | undefined> = client.get<{ ok: boolean }>(\'/users\')',
       'void jsonPromise',
       '',
+      "const textClient = createClient({ baseURL: 'https://api.example.com', responseType: 'text' })",
+      "const defaultTextPromise: Promise<string> = textClient.get('/health')",
+      'void defaultTextPromise',
+      '',
+      "const rawClient = textClient.extend({ responseType: 'raw' })",
+      "const defaultRawPromise: Promise<Response> = rawClient.get('/download')",
+      'void defaultRawPromise',
+      '',
+      "const explicitJsonPromise: Promise<{ ok: boolean } | undefined> = textClient.get<{ ok: boolean }>('/users', { responseType: 'json' })",
+      'void explicitJsonPromise',
+      '',
+      '// @ts-expect-error an explicit client mode requires a matching runtime default',
+      "createClient<'text'>()",
+      '',
+      '// @ts-expect-error an explicit extended mode requires a matching runtime default',
+      "textClient.extend<'raw'>({})",
+      '',
       'async function smokeRequestBodies() {',
       "  await request('https://api.example.com/create', {",
       "    method: 'POST',",
@@ -197,9 +225,21 @@ try {
     ],
     { cwd: tempDir },
   )
+
+  if (retainTarball) {
+    const artifactDir = path.join(rootDir, 'release-artifact')
+    const artifactPath = path.join(artifactDir, packResult.filename)
+    await rm(artifactDir, { recursive: true, force: true })
+    await mkdir(artifactDir)
+    await rename(tarballPath, artifactPath)
+    tarballRetained = true
+    console.log(`retained verified tarball at ${artifactPath}`)
+  }
 } finally {
   await rm(tempDir, { recursive: true, force: true })
-  await rm(tarballPath, { force: true })
+  if (!tarballRetained) {
+    await rm(tarballPath, { force: true })
+  }
 }
 
 console.log('packed artifact smoke checks passed')
@@ -218,6 +258,40 @@ function assertPackedFiles(files) {
 
   if (unexpectedFiles.length > 0) {
     throw new Error(`unexpected files in packed artifact: ${unexpectedFiles.join(', ')}`)
+  }
+
+  const declarationMaps = files
+    .map((entry) => entry.path)
+    .filter((filePath) => filePath.endsWith('.d.ts.map'))
+  if (declarationMaps.length > 0) {
+    throw new Error(
+      `declaration maps must not ship without their TypeScript sources: ${declarationMaps.join(', ')}`,
+    )
+  }
+}
+
+function assertPackedSize(packResult) {
+  if (!Number.isFinite(packResult.size) || !Number.isFinite(packResult.unpackedSize)) {
+    throw new Error('npm pack did not report finite packed and unpacked byte counts')
+  }
+
+  const fileCount = packResult.files.length
+  const violations = []
+
+  if (packResult.size > MAX_PACKED_BYTES) {
+    violations.push(`packed bytes ${packResult.size} > ${MAX_PACKED_BYTES}`)
+  }
+  if (packResult.unpackedSize > MAX_UNPACKED_BYTES) {
+    violations.push(
+      `unpacked bytes ${packResult.unpackedSize} > ${MAX_UNPACKED_BYTES}`,
+    )
+  }
+  if (fileCount > MAX_PACKED_FILES) {
+    violations.push(`file count ${fileCount} > ${MAX_PACKED_FILES}`)
+  }
+
+  if (violations.length > 0) {
+    throw new Error(`packed artifact exceeds its size budget: ${violations.join('; ')}`)
   }
 }
 

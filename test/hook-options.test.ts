@@ -109,6 +109,17 @@ test('createHookRequestOptions exposes serialized URLSearchParams query metadata
   assert.equal(snapshot.queryString, 'tag=a&page=1&tag=b')
 })
 
+test('createHookRequestOptions recognizes cross-realm URLSearchParams metadata', () => {
+  const query = new URLSearchParams('tag=a&page=1&tag=b')
+  Object.setPrototypeOf(query, null)
+  const snapshot = createHookRequestOptions(
+    createOptions({ query: query as URLSearchParams }),
+    DEFAULT_METADATA,
+  )
+
+  assert.equal(Object.hasOwn(snapshot, 'query'), false)
+})
+
 test('createHookRequestOptions freezes query metadata and query arrays when query is present', () => {
   const query = {
     page: 2,
@@ -126,6 +137,23 @@ test('createHookRequestOptions freezes query metadata and query arrays when quer
   assert.notEqual(snapshot.query?.tags, query.tags)
   assert.equal(Object.isFrozen(snapshot.query?.tags), true)
   assert.deepEqual(snapshot.query, query)
+})
+
+test('createHookRequestOptions preserves special query keys as own properties', () => {
+  const query = JSON.parse(
+    '{"__proto__":["admin","editor"],"constructor":"value"}',
+  ) as Exclude<NormalizedRequestOptions['query'], undefined>
+
+  const snapshot = createHookRequestOptions(
+    createOptions({ query }),
+    DEFAULT_METADATA,
+  )
+
+  assert.equal(Object.getPrototypeOf(snapshot.query), Object.prototype)
+  assert.equal(Object.hasOwn(snapshot.query ?? {}, '__proto__'), true)
+  assert.equal(Object.hasOwn(snapshot.query ?? {}, 'constructor'), true)
+  assert.deepEqual(snapshot.query?.['__proto__'], ['admin', 'editor'])
+  assert.equal(snapshot.query?.constructor, 'value')
 })
 
 test('createHookRequestOptions omits optional metadata keys when absent', () => {

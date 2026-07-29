@@ -1,3 +1,4 @@
+import { ConfigError } from '../errors.js'
 import type {
   ClientDefaults,
   Hooks,
@@ -9,11 +10,13 @@ import {
   normalizeBeforeRequestHooks,
   normalizeOnErrorHooks,
 } from './hooks.js'
+import { normalizeRetry } from './retry-policy.js'
 
 export function mergeClientDefaults(
   parent: ClientDefaults,
   child: ClientDefaults,
 ): ClientDefaults {
+  validateNullDefaultValues(child)
   const merged: ClientDefaults = {}
 
   mergeScalarDefaults(merged, parent, child)
@@ -23,7 +26,42 @@ export function mergeClientDefaults(
   return merged
 }
 
+function validateNullDefaultValues(defaults: ClientDefaults): void {
+  if (
+    typeof defaults !== 'object' ||
+    defaults === null ||
+    Array.isArray(defaults)
+  ) {
+    throw new ConfigError('`defaults` must be an object')
+  }
+
+  const values = defaults as Record<string, unknown>
+
+  if (values.baseURL === null) {
+    throw new ConfigError('`baseURL` must be a string or URL')
+  }
+  if (values.headers === null) {
+    throw new ConfigError('`headers` must not be null')
+  }
+  if (values.timeout === null) {
+    throw new ConfigError('`timeout` must be a non-negative finite number')
+  }
+  if (values.responseType === null) {
+    throw new ConfigError('Unsupported responseType: null')
+  }
+  if (values.retry === null) {
+    throw new ConfigError('`retry` must be false or an object')
+  }
+  if (values.hooks === null) {
+    throw new ConfigError('`hooks` must be an object')
+  }
+  if (values.parseJson === null) {
+    throw new ConfigError('`parseJson` must be a function')
+  }
+}
+
 export function snapshotClientDefaults(defaults: ClientDefaults): ClientDefaults {
+  validateNullDefaultValues(defaults)
   const snapshot: ClientDefaults = {}
 
   snapshotBaseURL(snapshot, defaults)
@@ -72,8 +110,8 @@ function mergeHeaderDefaults(
   parent: ClientDefaults,
   child: ClientDefaults,
 ): void {
-  const headers = new Headers(parent.headers)
-  const childHeaders = new Headers(child.headers)
+  const headers = createHeaders(parent.headers)
+  const childHeaders = createHeaders(child.headers)
   for (const [key, value] of childHeaders.entries()) {
     headers.set(key, value)
   }
@@ -98,9 +136,21 @@ function snapshotBaseURL(
   snapshot: ClientDefaults,
   defaults: ClientDefaults,
 ): void {
-  if (defaults.baseURL !== undefined) {
-    snapshot.baseURL =
-      defaults.baseURL instanceof URL ? new URL(defaults.baseURL) : defaults.baseURL
+  if (defaults.baseURL === undefined) {
+    return
+  }
+
+  if (typeof defaults.baseURL === 'string') {
+    snapshot.baseURL = defaults.baseURL
+    return
+  }
+
+  try {
+    snapshot.baseURL = new URL(
+      URL.prototype.toString.call(defaults.baseURL),
+    )
+  } catch (cause) {
+    throw new ConfigError('`baseURL` must be a string or URL', cause)
   }
 }
 
@@ -109,7 +159,7 @@ function snapshotHeaders(
   defaults: ClientDefaults,
 ): void {
   if (defaults.headers !== undefined) {
-    snapshot.headers = new Headers(defaults.headers)
+    snapshot.headers = createHeaders(defaults.headers)
   }
 }
 
@@ -158,47 +208,39 @@ function snapshotRetry(retry: false | RetryOptions): false | RetryOptions {
     return false
   }
 
-  const snapshot: RetryOptions = {
-    ...retry,
-  }
-
-  copyRetryOnStatuses(snapshot, retry)
-  copyRetryOnMethods(snapshot, retry)
-
-  return snapshot
+  return normalizeRetry(undefined, retry)
 }
 
-function copyRetryOnStatuses(
-  snapshot: RetryOptions,
-  retry: RetryOptions,
-): void {
-  if (retry.retryOnStatuses !== undefined) {
-    snapshot.retryOnStatuses = retry.retryOnStatuses.slice()
-  }
-}
-
-function copyRetryOnMethods(
-  snapshot: RetryOptions,
-  retry: RetryOptions,
-): void {
-  if (retry.retryOnMethods !== undefined) {
-    snapshot.retryOnMethods = retry.retryOnMethods.slice()
+function createHeaders(headers?: HeadersInit): Headers {
+  try {
+    return new Headers(headers)
+  } catch (cause) {
+    if (cause instanceof TypeError) {
+      throw new ConfigError(
+        '`headers` must contain valid header names and values',
+        cause,
+      )
+    }
+    throw cause
   }
 }
 
 function snapshotHooks(hooks: Hooks): Hooks {
+  const beforeRequest = normalizeBeforeRequestHooks(hooks)
+  const afterResponse = normalizeAfterResponseHooks(hooks)
+  const onError = normalizeOnErrorHooks(hooks)
   const snapshot: Hooks = {}
 
   if (hooks.beforeRequest !== undefined) {
-    snapshot.beforeRequest = normalizeBeforeRequestHooks(hooks)
+    snapshot.beforeRequest = beforeRequest
   }
 
   if (hooks.afterResponse !== undefined) {
-    snapshot.afterResponse = normalizeAfterResponseHooks(hooks)
+    snapshot.afterResponse = afterResponse
   }
 
   if (hooks.onError !== undefined) {
-    snapshot.onError = normalizeOnErrorHooks(hooks)
+    snapshot.onError = onError
   }
 
   return snapshot

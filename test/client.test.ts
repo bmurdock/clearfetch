@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HttpError, NetworkError } from '../src/errors.js'
+import { ConfigError, HttpError, NetworkError } from '../src/errors.js'
 import { createClient } from '../src/index.js'
 import { request } from '../src/request.js'
 
@@ -20,6 +20,29 @@ test('request parses json responses', async () => {
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('public request surfaces reject invalid option containers', async () => {
+  const client = createClient()
+
+  await assert.rejects(
+    () => request('https://api.example.com/users', null as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`options` must be an object',
+  )
+  await assert.rejects(
+    () => client.request('https://api.example.com/users', null as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`options` must be an object',
+  )
+  await assert.rejects(
+    () => client.get('https://api.example.com/users', null as never),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`options` must be an object',
+  )
 })
 
 test('createClient resolves baseURL and extend merges headers', async () => {
