@@ -58,9 +58,11 @@ const clientJsonPromise: Promise<{ ok: boolean } | undefined> = client.get<{
 void clientJsonPromise
 
 const textDefaultClient = createClient({ responseType: 'text' })
+const legacyTextDefaultClient: HttpClient = textDefaultClient
 const defaultTextPromise: Promise<string> = textDefaultClient.get(
   'https://api.example.com/text',
 )
+void legacyTextDefaultClient
 void defaultTextPromise
 
 const rawDefaultClient = createClient({ responseType: 'raw' })
@@ -91,22 +93,24 @@ const inheritedTextPromise: Promise<string> = inheritedTextDefault.get(
 void inheritedTextPromise
 
 const extendedRawDefault = textDefaultClient.extend({ responseType: 'raw' })
+const legacyRawExtendedClient: HttpClient = extendedRawDefault
 const extendedRawPromise: Promise<Response> = extendedRawDefault.get(
   'https://api.example.com/raw',
 )
+void legacyRawExtendedClient
 void extendedRawPromise
 
 const dynamicDefaults: ClientDefaults = { responseType: 'text' }
 const dynamicDefaultClient = createClient(dynamicDefaults)
 type DynamicDefaultClient = Expect<
-  Equal<typeof dynamicDefaultClient, HttpClient<ResponseType>>
+  Equal<typeof dynamicDefaultClient, HttpClient<ResponseType> & HttpClient>
 >
 void (undefined as unknown as DynamicDefaultClient)
 
 const dynamicExtendedDefaults: ClientDefaults = { responseType: 'raw' }
 const dynamicExtendedClient = textDefaultClient.extend(dynamicExtendedDefaults)
 type DynamicExtendedClient = Expect<
-  Equal<typeof dynamicExtendedClient, HttpClient<ResponseType>>
+  Equal<typeof dynamicExtendedClient, HttpClient<ResponseType> & HttpClient>
 >
 void (undefined as unknown as DynamicExtendedClient)
 

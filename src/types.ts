@@ -476,7 +476,7 @@ export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
     defaults: Omit<ClientDefaults, 'responseType'> & {
       responseType: ChildResponseType
     },
-  ): HttpClient<ChildResponseType>
+  ): HttpClient<ChildResponseType> & HttpClient
 
   extend(
     defaults: Omit<ClientDefaults, 'responseType'> & {
@@ -484,7 +484,7 @@ export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
     },
   ): HttpClient<DefaultResponseType>
 
-  extend(defaults: ClientDefaults): HttpClient<ResponseType>
+  extend(defaults: ClientDefaults): HttpClient<ResponseType> & HttpClient
 }
 
 type ResponseResult<T, ResponseMode extends ResponseType> =
