@@ -28,8 +28,9 @@ test('real browser handles native values created in another realm', {
         requestContentTypes,
       )
     } catch (error) {
+      console.error(error)
       response.writeHead(500, { 'Content-Type': 'text/plain' })
-      response.end(error instanceof Error ? error.stack : String(error))
+      response.end('Internal test server error')
     }
   })
 
