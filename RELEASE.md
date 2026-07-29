@@ -82,8 +82,10 @@ git diff --check
 The repository should enforce the following protections on `main` and any future release-bearing branches:
 
 - require pull requests before merging
-- require the `CI` workflow to pass
-- require the dependency review workflow to pass for pull requests
+- require every current `CI` job context: `workflow-lint`, `verify (18)`,
+  `verify (20)`, `verify (22)`, `verify (24)`, `verify (26)`, `browser-like`,
+  `browser-real`, and `package-guardrails`
+- require the `dependency-review` workflow context for pull requests
 - block force pushes
 - block branch deletion
 - require full commit SHA pins for GitHub Actions
@@ -93,6 +95,10 @@ The repository should enforce the following protections on `main` and any future
 - keep GitHub private vulnerability reporting enabled
 - keep the `npm` environment and npm trusted publisher configuration aligned with `.github/workflows/release.yml`
 - restrict the `npm` environment to release tags matching `v*`
+
+Update the required-context list whenever a CI matrix entry or job name
+changes. A check that runs and passes but is not required does not protect
+`main` from a merge that omits that evidence.
 
 ## Tag policy
 
@@ -112,6 +118,7 @@ The npm package settings for `@gavoryn/clearfetch` should define a trusted publi
 - repository: `clearfetch`
 - workflow filename: `release.yml`
 - environment name: `npm`
+- allowed action: `npm publish`
 
 When npm package administration is available, maintainers should also disable
 traditional publish tokens. Staged publishing with a separate 2FA approval is a

@@ -1,7 +1,9 @@
 # Changelog
 
-Entries describe repository versions. A version is publicly released only after
-the matching `vX.Y.Z` tag publishes to npm and a GitHub Release exists.
+Entries describe repository versions. For current releases, completion requires
+the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
+Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
+their npm publications and Git tags remain the historical release evidence.
 
 ## 1.0.7
 
