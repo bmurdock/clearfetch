@@ -16,6 +16,8 @@ import {
 } from './platform-values.js'
 import {
   applyQueryString,
+  freezeQueryInput,
+  isFrozenQueryInput,
   serializeQueryParams,
   serializeValidatedQueryParams,
   snapshotQueryInput,
@@ -208,7 +210,9 @@ function cloneNormalizedRequestOptions(
   }
 
   if (options.query !== undefined) {
-    snapshot.query = snapshotQueryInput(options.query)
+    snapshot.query = isFrozenQueryInput(options.query)
+      ? options.query
+      : snapshotQueryInput(options.query)
   }
 
   if (options.body !== undefined) {
@@ -321,7 +325,7 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
-    normalized.query = snapshotQueryInput(options.query)
+    normalized.query = freezeQueryInput(snapshotQueryInput(options.query))
   }
 
   if (options.body !== undefined) {

@@ -79,6 +79,8 @@ test('createBeforeRequestContext reads accessor-backed query values once', () =>
     'https://api.example.com/users?token=stable',
   )
   assert.deepEqual(context.hookContext.options.query, { token: 'stable' })
+  assert.equal(context.normalizedOptions.query, context.hookContext.options.query)
+  assert.equal(Object.isFrozen(context.normalizedOptions.query), true)
 })
 
 test('createBeforeRequestContext reads accessor-backed query array values once', () => {
@@ -105,6 +107,7 @@ test('createBeforeRequestContext reads accessor-backed query array values once',
     'https://api.example.com/users?token=stable',
   )
   assert.deepEqual(context.hookContext.options.query, { token: ['stable'] })
+  assert.equal(Object.isFrozen(context.hookContext.options.query?.token), true)
 })
 
 test('resolveRequestURL appends URLSearchParams query input', () => {

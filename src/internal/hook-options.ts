@@ -4,6 +4,7 @@ import type {
   PrimitiveQueryValue,
   QueryParams,
 } from '../types.js'
+import { isFrozenQueryInput } from './query-params.js'
 
 export function createHookRequestOptions(
   options: NormalizedRequestOptions,
@@ -41,7 +42,9 @@ export function createHookRequestOptions(
     Object.defineProperty(snapshot, 'query', {
       configurable: false,
       enumerable: true,
-      value: freezeQueryParams(options.query),
+      value: isFrozenQueryInput(options.query)
+        ? options.query
+        : freezeQueryParams(options.query),
       writable: false,
     })
   }

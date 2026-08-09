@@ -27,6 +27,30 @@ export function snapshotQueryInput(query: unknown): QueryInput {
   return snapshot
 }
 
+export function freezeQueryInput(query: QueryInput): QueryInput {
+  if (isURLSearchParams(query)) {
+    return query
+  }
+
+  for (const value of Object.values(query)) {
+    if (Array.isArray(value)) {
+      Object.freeze(value)
+    }
+  }
+
+  return Object.freeze(query)
+}
+
+export function isFrozenQueryInput(query: QueryInput): boolean {
+  if (isURLSearchParams(query) || !Object.isFrozen(query)) {
+    return false
+  }
+
+  return Object.values(query).every(
+    (value) => !Array.isArray(value) || Object.isFrozen(value),
+  )
+}
+
 export function serializeQueryParams(query?: QueryInput): string {
   if (query === undefined) {
     return ''
