@@ -5,6 +5,15 @@ the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
 Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
 their npm publications and Git tags remain the historical release evidence.
 
+## Unreleased
+
+- validate all supplied client defaults during `createClient()` and `extend()`
+  construction, including malformed string base URLs and invalid scalar default
+  values
+- consolidate reusable-client response-mode overloads so all client methods
+  preserve explicit `json`, `text`, `blob`, `arrayBuffer`, and `raw` return
+  types in the declaration surface
+
 ## 1.0.7
 
 - reject timeout and retry-delay values above the maximum reliable platform timer delay and preserve timeout classification through `afterResponse` hooks

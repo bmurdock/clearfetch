@@ -350,7 +350,8 @@ Mutable default inputs are snapshotted when the client is created. This includes
 
 ### Validation rules
 
-Validation must occur before the request is executed.
+Client defaults are validated while `createClient()` or `extend()` constructs a
+client. Request options are validated before the request is executed.
 
 Invalid configurations must fail fast with a configuration error.
 

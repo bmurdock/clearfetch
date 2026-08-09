@@ -372,7 +372,7 @@ const user = User.parse(data)
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
 - Timeout and retry-delay values may not exceed `2,147,483,647` milliseconds, the maximum reliable platform timer delay.
 - After the timeout window starts, expiration remains authoritative through `afterResponse` hooks and response parsing.
-- Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`.
+- Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`. `createClient()` and `extend()` also validate supplied client defaults during construction.
 - Hook, request-normalization, retry rebuild, and request-construction failures are not wrapped as `NetworkError`.
 - Each `afterResponse` hook receives an independently readable cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
