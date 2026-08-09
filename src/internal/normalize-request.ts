@@ -420,7 +420,7 @@ function normalizeMethod(method: unknown): RequestMethod {
   return method.toUpperCase() as RequestMethod
 }
 
-function normalizeTimeout(timeout?: number): number | undefined {
+export function normalizeTimeout(timeout?: number): number | undefined {
   if (timeout === undefined) {
     return undefined
   }
@@ -449,7 +449,7 @@ function normalizeBeforeRequestURL(value: unknown): URL {
   }
 }
 
-function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
+export function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
   if (
     typeof responseType !== 'string' ||
     !RESPONSE_TYPES.has(responseType as ResponseType)
@@ -460,7 +460,7 @@ function normalizeResponseType(responseType: unknown): NormalizedRequestOptions[
   return responseType as NormalizedRequestOptions['responseType']
 }
 
-function normalizeParseJson(
+export function normalizeParseJson(
   parseJson: unknown,
 ): NormalizedRequestOptions['parseJson'] {
   if (typeof parseJson !== 'function') {
@@ -486,7 +486,7 @@ function resolveInputURL(input: string, base?: URL): URL {
   }
 }
 
-function toAbsoluteURL(value: string | URL, message: string): URL {
+export function toAbsoluteURL(value: string | URL, message: string): URL {
   try {
     return value instanceof URL ? new URL(value) : new URL(value)
   } catch (cause) {
