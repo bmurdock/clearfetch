@@ -79,13 +79,28 @@ async function getPublishedMetadata(packageSpec) {
       ],
       { maxBuffer: 1024 * 1024 },
     )
-    return JSON.parse(stdout)
+    return normalizeNpmViewResult(JSON.parse(stdout))
   } catch (error) {
     if (isNotFoundError(error)) {
       return undefined
     }
     throw error
   }
+}
+
+function normalizeNpmViewResult(value) {
+  if (Array.isArray(value)) {
+    if (value.length !== 1) {
+      throw new Error('npm view returned an unexpected number of package records')
+    }
+    return value[0]
+  }
+
+  if (value === null || typeof value !== 'object') {
+    throw new Error('npm view did not return a package record')
+  }
+
+  return value
 }
 
 async function calculateIntegrity(tarballPath) {

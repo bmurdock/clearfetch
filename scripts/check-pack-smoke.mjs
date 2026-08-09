@@ -21,7 +21,7 @@ if (unexpectedArguments.length > 0) {
 const { stdout } = await execFileAsync('npm', ['pack', '--json', '--ignore-scripts'], {
   cwd: rootDir,
 })
-const [packResult] = JSON.parse(stdout)
+const packResult = selectPackResult(JSON.parse(stdout))
 const tarballPath = path.join(rootDir, packResult.filename)
 
 assertPackedFiles(packResult.files)
@@ -243,6 +243,29 @@ try {
 }
 
 console.log('packed artifact smoke checks passed')
+
+function selectPackResult(output) {
+  const candidates = Array.isArray(output)
+    ? output
+    : [output, ...(isRecord(output) ? Object.values(output) : [])]
+  const packResult = candidates.find((candidate) => {
+    return (
+      isRecord(candidate) &&
+      typeof candidate.filename === 'string' &&
+      Array.isArray(candidate.files)
+    )
+  })
+
+  if (packResult === undefined) {
+    throw new Error('npm pack did not return a usable package result')
+  }
+
+  return packResult
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
 
 function assertPackedFiles(files) {
   const unexpectedFiles = files
