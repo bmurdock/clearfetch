@@ -7,6 +7,8 @@ their npm publications and Git tags remain the historical release evidence.
 
 ## Unreleased
 
+## 1.0.8
+
 - validate all supplied client defaults during `createClient()` and `extend()`
   construction, including malformed string base URLs and invalid scalar default
   values
