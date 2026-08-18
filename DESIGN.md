@@ -364,6 +364,7 @@ Examples of invalid configurations include:
 - timeout or retry-delay values above the platform timer maximum of `2,147,483,647` milliseconds
 - malformed base URL
 - unsupported response type
+- invalid abort signal
 - invalid retry values, including explicit `null` nested fields
 
 Strict validation is desirable. Silent coercion should be avoided unless it is trivial and unsurprising.
@@ -538,6 +539,9 @@ When parsing JSON:
 3. Return parsed value
 4. Throw a parse error if parsing fails
 
+The configured parser may return a value or a promise. Synchronous throws and
+asynchronous rejections are both classified as `ParseError`.
+
 The package must not silently fall back from JSON to text.
 
 Silent fallback hides data problems and makes failures harder to reason about.
@@ -564,7 +568,9 @@ Non-2xx responses must throw an `HttpError` before response parsing is returned 
 
 This is a deliberate divergence from native fetch behavior and a major part of the package’s value proposition.
 
-`HttpError` may include `bodyText` for diagnostics, but capture should be bounded so large payloads do not cause avoidable memory pressure.
+`HttpError` may include `bodyText` for diagnostics, but capture is bounded by
+both size and a short diagnostic read budget so large or stalled payloads do not
+cause avoidable memory pressure or delay HTTP classification indefinitely.
 
 Diagnostic body capture may consume or cancel the `HttpError.response` body. Consumers that need to inspect a non-2xx response body should use `bodyText` or an `afterResponse` hook instead of assuming the retained `Response` body remains readable.
 
@@ -668,6 +674,7 @@ A timeout means:
 - the controller aborts once the configured timeout elapses
 - timeout expiration produces a `TimeoutError`
 - after the timer starts, timeout classification remains authoritative through `afterResponse` hooks and response parsing
+- asynchronous custom JSON parsing is raced against the active attempt signal so a pending parser cannot outlive timeout or external-abort classification
 
 ### External abort model
 

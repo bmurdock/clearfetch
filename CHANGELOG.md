@@ -13,6 +13,16 @@ their npm publications and Git tags remain the historical release evidence.
 - consolidate reusable-client response-mode overloads so all client methods
   preserve explicit `json`, `text`, `blob`, `arrayBuffer`, and `raw` return
   types in the declaration surface
+- bound non-2xx diagnostic body reads by size and time, preserve valid Unicode
+  while truncating, and keep stalled error bodies from delaying `HttpError`
+  classification indefinitely
+- classify asynchronous custom JSON parser rejections as `ParseError` and keep
+  timeout or external-abort signals authoritative while a parser is pending
+- reject invalid request abort signals with `ConfigError` while preserving
+  cross-realm native signal support
+- retry post-publish npm integrity and attestation visibility checks during
+  bounded registry propagation windows
+- clean up root tarballs when packed-artifact assertions fail
 
 ## 1.0.7
 
