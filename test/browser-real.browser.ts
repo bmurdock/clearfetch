@@ -54,6 +54,7 @@ test('real browser handles native values created in another realm', {
   let result: {
     arrayBufferResult: { attempts: number; bodies: number[][] }
     crossRealmBaseURLResult: { pathname: string }
+    crossRealmSignalResult: { search: string }
     crossRealmURLResult: { search: string }
     formDataResult: { attempts: number; bodies: string[]; contentTypes: string[] }
     queryResult: { search: string }
@@ -112,6 +113,12 @@ test('real browser handles native values created in another realm', {
       foreignBaseURL.pathname = '/base-mutated/'
       const crossRealmBaseURLResult = await crossRealmBaseURLClient.get('query')
 
+      const foreignAbortController = new foreign.AbortController()
+      const crossRealmSignalResult = await client.get('/query', {
+        query: { source: 'foreign-signal' },
+        signal: foreignAbortController.signal,
+      })
+
       const bytes = new foreign.ArrayBuffer(4)
       new foreign.Uint8Array(bytes).set([1, 2, 3, 4])
       const arrayBufferResult = await client.post('/array-buffer', {
@@ -149,6 +156,7 @@ test('real browser handles native values created in another realm', {
       return {
         arrayBufferResult,
         crossRealmBaseURLResult,
+        crossRealmSignalResult,
         crossRealmURLResult,
         formDataResult,
         queryResult,
@@ -170,6 +178,9 @@ test('real browser handles native values created in another realm', {
   })
   assert.deepEqual(result.crossRealmBaseURLResult, {
     pathname: '/base-original/query',
+  })
+  assert.deepEqual(result.crossRealmSignalResult, {
+    search: '?source=foreign-signal',
   })
   assert.deepEqual(result.arrayBufferResult, {
     attempts: 2,

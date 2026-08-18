@@ -65,7 +65,7 @@ export interface RequestOptionsBase {
   responseType?: ResponseType
   retry?: false | RetryOptions
   hooks?: Hooks
-  parseJson?: (text: string) => unknown
+  parseJson?: (text: string) => unknown | PromiseLike<unknown>
 }
 
 export type BodylessRequestOptions = RequestOptionsBase & {
@@ -113,7 +113,7 @@ export interface ClientDefaults {
   responseType?: ResponseType
   retry?: false | RetryOptions
   hooks?: Hooks
-  parseJson?: (text: string) => unknown
+  parseJson?: (text: string) => unknown | PromiseLike<unknown>
 }
 
 /**
@@ -143,7 +143,7 @@ export interface HookRequestOptions {
   readonly signal?: AbortSignal
   readonly responseType: ResponseType
   readonly retry: false | HookRetryOptions
-  readonly parseJson: (text: string) => unknown
+  readonly parseJson: (text: string) => unknown | PromiseLike<unknown>
 }
 
 /**
@@ -225,7 +225,7 @@ export interface NormalizedRequestOptions {
   responseType: ResponseType
   retry: false | Required<RetryOptions>
   hooks: Required<Hooks>
-  parseJson: (text: string) => unknown
+  parseJson: (text: string) => unknown | PromiseLike<unknown>
 }
 
 /**

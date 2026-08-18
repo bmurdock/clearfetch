@@ -297,6 +297,7 @@ export function normalizeRequestOptions(
         : DEFAULT_PARSE_JSON,
   )
   const headers = mergeHeaders(defaults.headers, options.headers)
+  const signal = normalizeAbortSignal(options.signal)
 
   const hasJson = Object.hasOwn(options, 'json')
 
@@ -340,11 +341,53 @@ export function normalizeRequestOptions(
     normalized.timeout = timeout
   }
 
-  if (options.signal !== undefined) {
-    normalized.signal = options.signal
+  if (signal !== undefined) {
+    normalized.signal = signal
   }
 
   return normalized
+}
+
+function normalizeAbortSignal(signal: unknown): AbortSignal | undefined {
+  if (signal === undefined) {
+    return undefined
+  }
+
+  const message = '`signal` must be an AbortSignal'
+  if (
+    typeof AbortSignal === 'undefined' ||
+    typeof signal !== 'object' ||
+    signal === null
+  ) {
+    throw new ConfigError(message)
+  }
+
+  try {
+    const abortedGetter = Object.getOwnPropertyDescriptor(
+      AbortSignal.prototype,
+      'aborted',
+    )?.get
+
+    if (abortedGetter === undefined) {
+      if (!(signal instanceof AbortSignal)) {
+        throw new TypeError(message)
+      }
+    } else {
+      abortedGetter.call(signal)
+    }
+
+    const candidate = signal as AbortSignal
+    if (
+      typeof candidate.addEventListener !== 'function' ||
+      typeof candidate.removeEventListener !== 'function'
+    ) {
+      throw new TypeError(message)
+    }
+
+    return candidate
+  } catch (cause) {
+    throw new ConfigError(message, cause)
+  }
 }
 
 export function resolveRequestURL(

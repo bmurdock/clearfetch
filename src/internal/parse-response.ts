@@ -2,12 +2,14 @@ import { HttpError, ParseError } from '../errors.js'
 import type { ResponseType } from '../types.js'
 
 const MAX_ERROR_BODY_TEXT_CHARS = 16_384
+const MAX_ERROR_BODY_READ_MS = 250
+const MAX_ERROR_BODY_DECODE_CHUNK_BYTES = 4_096
 const TRUNCATED_BODY_SUFFIX = '...[truncated]'
 
 export async function parseResponse<T = unknown>(params: {
   response: Response
   responseType: ResponseType
-  parseJson: (text: string) => unknown
+  parseJson: (text: string) => unknown | PromiseLike<unknown>
   request?: Request
 }): Promise<unknown | Response | undefined> {
   const { parseJson, request, response, responseType } = params
@@ -55,7 +57,7 @@ export async function createHttpError(
 
 async function parseJsonResponse<T>(
   response: Response,
-  parseJson: (text: string) => unknown,
+  parseJson: (text: string) => unknown | PromiseLike<unknown>,
 ): Promise<T | undefined> {
   const bodyText = await response.text()
 
@@ -64,7 +66,7 @@ async function parseJsonResponse<T>(
   }
 
   try {
-    return parseJson(bodyText) as T
+    return await parseJson(bodyText) as T
   } catch (cause) {
     throw new ParseError({
       response,
@@ -100,40 +102,96 @@ async function readBodyTextWithLimit(
   const decoder = new TextDecoder()
   let bodyText = ''
   let truncated = false
+  let stoppedEarly = false
+  const deadline = Date.now() + MAX_ERROR_BODY_READ_MS
 
   try {
+    readLoop:
     while (true) {
-      const { done, value } = await reader.read()
+      const result = await readWithDeadline(reader, deadline)
+      if (result === undefined) {
+        stoppedEarly = true
+        truncated = bodyText !== ''
+        void reader.cancel().catch(() => undefined)
+        break
+      }
+
+      const { done, value } = result
       if (done) {
         break
       }
 
-      const remainingChars = maxChars - bodyText.length
-      const chunk =
-        value.byteLength > remainingChars + 1
-          ? value.subarray(0, remainingChars + 1)
-          : value
-
-      bodyText += decoder.decode(chunk, { stream: true })
-      if (
-        value.byteLength > chunk.byteLength ||
-        bodyText.length >= maxChars
+      for (
+        let offset = 0;
+        offset < value.byteLength;
+        offset += MAX_ERROR_BODY_DECODE_CHUNK_BYTES
       ) {
-        truncated = true
-        bodyText = bodyText.slice(0, maxChars)
-        void reader.cancel().catch(() => undefined)
-        break
+        const chunk = value.subarray(
+          offset,
+          Math.min(
+            offset + MAX_ERROR_BODY_DECODE_CHUNK_BYTES,
+            value.byteLength,
+          ),
+        )
+        bodyText += decoder.decode(chunk, { stream: true })
+
+        if (bodyText.length >= maxChars) {
+          stoppedEarly = true
+          truncated = true
+          bodyText = sliceAtCodePointBoundary(bodyText, maxChars)
+          void reader.cancel().catch(() => undefined)
+          break readLoop
+        }
       }
     }
   } finally {
     reader.releaseLock()
   }
 
-  bodyText += decoder.decode()
+  if (!stoppedEarly) {
+    bodyText += decoder.decode()
+  }
 
   return truncated
     ? `${bodyText}${TRUNCATED_BODY_SUFFIX}`
     : bodyText
+}
+
+async function readWithDeadline(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  deadline: number,
+): Promise<ReadableStreamReadResult<Uint8Array> | undefined> {
+  const remainingMs = deadline - Date.now()
+  if (remainingMs <= 0) {
+    return undefined
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timeoutId = setTimeout(() => {
+      settled = true
+      resolve(undefined)
+    }, remainingMs)
+
+    void reader.read().then(
+      (result) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timeoutId)
+        resolve(result)
+      },
+      (error: unknown) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timeoutId)
+        reject(error)
+      },
+    )
+  })
 }
 
 function truncateBodyText(text: string, maxChars: number): string {
@@ -141,5 +199,22 @@ function truncateBodyText(text: string, maxChars: number): string {
     return text
   }
 
-  return `${text.slice(0, maxChars)}${TRUNCATED_BODY_SUFFIX}`
+  return `${sliceAtCodePointBoundary(text, maxChars)}${TRUNCATED_BODY_SUFFIX}`
+}
+
+function sliceAtCodePointBoundary(text: string, maxChars: number): string {
+  let end = maxChars
+  const lastRetainedCodeUnit = text.charCodeAt(end - 1)
+  const firstOmittedCodeUnit = text.charCodeAt(end)
+
+  if (
+    lastRetainedCodeUnit >= 0xd800 &&
+    lastRetainedCodeUnit <= 0xdbff &&
+    firstOmittedCodeUnit >= 0xdc00 &&
+    firstOmittedCodeUnit <= 0xdfff
+  ) {
+    end -= 1
+  }
+
+  return text.slice(0, end)
 }

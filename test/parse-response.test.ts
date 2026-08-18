@@ -44,6 +44,29 @@ test('parseResponse throws ParseError for invalid non-empty json', async () => {
   )
 })
 
+test('parseResponse wraps asynchronous JSON parser rejections', async () => {
+  const response = new Response('{"ok":true}', {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'json',
+        parseJson: async () => {
+          throw new SyntaxError('asynchronous parser failure')
+        },
+      }),
+    (error) =>
+      error instanceof ParseError &&
+      error.cause instanceof SyntaxError &&
+      error.cause.message === 'asynchronous parser failure',
+  )
+})
+
 test('parseResponse truncates large ParseError body text', async () => {
   const response = new Response(`{${'x'.repeat(20_000)}`, {
     headers: {
@@ -106,6 +129,64 @@ test('parseResponse truncates large HttpError body text', async () => {
       typeof error.bodyText === 'string' &&
       error.bodyText.length < 20_000 &&
       error.bodyText.endsWith('...[truncated]'),
+  )
+})
+
+test('parseResponse preserves valid Unicode below the diagnostic character cap', async () => {
+  const bodyText = '😀'.repeat(5_000)
+  const response = new Response(bodyText, {
+    status: 500,
+    statusText: 'Internal Server Error',
+  })
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'text',
+        parseJson: JSON.parse,
+      }),
+    (error) =>
+      error instanceof HttpError &&
+      error.bodyText === bodyText &&
+      !error.bodyText.includes('�'),
+  )
+})
+
+test('parseResponse does not split Unicode at the HttpError truncation boundary', async () => {
+  const response = new Response(`a${'😀'.repeat(9_000)}`, {
+    status: 500,
+    statusText: 'Internal Server Error',
+  })
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'text',
+        parseJson: JSON.parse,
+      }),
+    (error) =>
+      error instanceof HttpError &&
+      error.bodyText?.endsWith('😀...[truncated]') === true,
+  )
+})
+
+test('parseResponse does not split Unicode at the ParseError truncation boundary', async () => {
+  const response = new Response(`a${'😀'.repeat(9_000)}`)
+
+  await assert.rejects(
+    () =>
+      parseResponse({
+        response,
+        responseType: 'json',
+        parseJson: () => {
+          throw new SyntaxError('invalid JSON')
+        },
+      }),
+    (error) =>
+      error instanceof ParseError &&
+      error.bodyText?.endsWith('😀...[truncated]') === true,
   )
 })
 
@@ -262,6 +343,52 @@ test('parseResponse truncates and cancels an error body that stalls at the diagn
       clearTimeout(timeoutId)
     }
     await parsePromise.catch(() => undefined)
+  }
+
+  assert.equal(cancelCalls, 1)
+})
+
+test('parseResponse stops diagnostic capture when an error body stalls below the cap', async () => {
+  let cancelCalls = 0
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const response = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('partial'))
+      },
+      cancel() {
+        cancelCalls += 1
+      },
+    }),
+    {
+      status: 500,
+      statusText: 'Internal Server Error',
+    },
+  )
+
+  try {
+    await assert.rejects(
+      () =>
+        Promise.race([
+          parseResponse({
+            response,
+            responseType: 'text',
+            parseJson: JSON.parse,
+          }),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+              reject(new Error('diagnostic capture remained pending'))
+            }, 1_000)
+          }),
+        ]),
+      (error) =>
+        error instanceof HttpError &&
+        error.bodyText === 'partial...[truncated]',
+    )
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId)
+    }
   }
 
   assert.equal(cancelCalls, 1)
