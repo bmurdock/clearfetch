@@ -164,8 +164,17 @@ const api = createClient({
 const response = await api.get('/status')
 ```
 
-Retries are disabled by default. When enabled, they are intentionally conservative. Streaming request bodies are rejected when the request method is eligible for multiple attempts.
-They are a convenience for bounded retry cases, not a general resilience framework.
+`attempts` includes the initial request. For example, `attempts: 3` permits up to
+three total attempts, including up to two retries.
+
+When an eligible request has attempts remaining, clearfetch retries a
+`NetworkError`. It retries HTTP responses only when their status appears in
+`retryOnStatuses`.
+
+Retries are disabled by default. When enabled, they remain intentionally
+conservative. Streaming request bodies are rejected when the request method is
+eligible for multiple attempts. Retries are a convenience for bounded cases,
+not a general resilience framework.
 Retried `FormData` preserves field values and file contents, names, and media
 types, but native multipart boundary encoding is not guaranteed to be
 byte-for-byte identical between attempts. Pre-serialize a body when exact bytes
@@ -270,7 +279,10 @@ const api = createClient({
 
 ```ts
 import {
+  AbortRequestError,
+  ConfigError,
   HttpError,
+  NetworkError,
   ParseError,
   TimeoutError,
   createClient,
@@ -292,9 +304,19 @@ try {
     console.error(error.bodyText)
   } else if (error instanceof TimeoutError) {
     console.error(error.timeout)
+  } else if (error instanceof NetworkError) {
+    console.error('Network request failed', error.cause)
+  } else if (error instanceof AbortRequestError) {
+    console.error('Request cancelled', error.cause)
+  } else if (error instanceof ConfigError) {
+    console.error('Invalid request configuration', error.message)
   }
 }
 ```
+
+The exported error classes cover configuration, network, timeout, cancellation,
+HTTP-status, and response-parsing failures. `isHttpClientError()` can identify
+the library's error types before more specific `instanceof` handling.
 
 ### Text and raw responses
 
