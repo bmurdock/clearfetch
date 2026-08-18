@@ -65,7 +65,7 @@ export interface RequestOptionsBase {
   responseType?: ResponseType
   retry?: false | RetryOptions
   hooks?: Hooks
-  parseJson?: (text: string) => unknown
+  parseJson?: (text: string) => unknown | PromiseLike<unknown>
 }
 
 export type BodylessRequestOptions = RequestOptionsBase & {
@@ -113,7 +113,7 @@ export interface ClientDefaults {
   responseType?: ResponseType
   retry?: false | RetryOptions
   hooks?: Hooks
-  parseJson?: (text: string) => unknown
+  parseJson?: (text: string) => unknown | PromiseLike<unknown>
 }
 
 /**
@@ -143,7 +143,7 @@ export interface HookRequestOptions {
   readonly signal?: AbortSignal
   readonly responseType: ResponseType
   readonly retry: false | HookRetryOptions
-  readonly parseJson: (text: string) => unknown
+  readonly parseJson: (text: string) => unknown | PromiseLike<unknown>
 }
 
 /**
@@ -225,252 +225,28 @@ export interface NormalizedRequestOptions {
   responseType: ResponseType
   retry: false | Required<RetryOptions>
   hooks: Required<Hooks>
-  parseJson: (text: string) => unknown
+  parseJson: (text: string) => unknown | PromiseLike<unknown>
 }
 
 /**
  * Reusable client API produced by `createClient()`.
  */
 export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
-  request<T = unknown>(
-    input: string | URL,
-    options?: DefaultRequestOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
+  request: ClientResponseMethod<RequestOptions, DefaultResponseType>
 
-  request<T = unknown>(
-    input: string | URL,
-    options: JsonRequestOptions,
-  ): Promise<T | undefined>
+  get: ClientResponseMethod<BodylessClientMethodOptions, DefaultResponseType>
 
-  request(
-    input: string | URL,
-    options: TextRequestOptions,
-  ): Promise<string>
+  post: ClientResponseMethod<ClientMethodOptions, DefaultResponseType>
 
-  request(
-    input: string | URL,
-    options: BlobRequestOptions,
-  ): Promise<Blob>
+  put: ClientResponseMethod<ClientMethodOptions, DefaultResponseType>
 
-  request(
-    input: string | URL,
-    options: ArrayBufferRequestOptions,
-  ): Promise<ArrayBuffer>
+  patch: ClientResponseMethod<ClientMethodOptions, DefaultResponseType>
 
-  request(
-    input: string | URL,
-    options: RawRequestOptions,
-  ): Promise<Response>
+  delete: ClientResponseMethod<ClientMethodOptions, DefaultResponseType>
 
-  get<T = unknown>(
-    input: string | URL,
-    options?: DefaultBodylessClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
+  head: ClientResponseMethod<BodylessClientMethodOptions, DefaultResponseType>
 
-  get<T = unknown>(
-    input: string | URL,
-    options: JsonBodylessClientMethodOptions,
-  ): Promise<T | undefined>
-
-  get(
-    input: string | URL,
-    options: TextBodylessClientMethodOptions,
-  ): Promise<string>
-
-  get(
-    input: string | URL,
-    options: BlobBodylessClientMethodOptions,
-  ): Promise<Blob>
-
-  get(
-    input: string | URL,
-    options: ArrayBufferBodylessClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  get(
-    input: string | URL,
-    options: RawBodylessClientMethodOptions,
-  ): Promise<Response>
-
-  post<T = unknown>(
-    input: string | URL,
-    options?: DefaultClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
-
-  post<T = unknown>(
-    input: string | URL,
-    options: JsonClientMethodOptions,
-  ): Promise<T | undefined>
-
-  post(
-    input: string | URL,
-    options: TextClientMethodOptions,
-  ): Promise<string>
-
-  post(
-    input: string | URL,
-    options: BlobClientMethodOptions,
-  ): Promise<Blob>
-
-  post(
-    input: string | URL,
-    options: ArrayBufferClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  post(
-    input: string | URL,
-    options: RawClientMethodOptions,
-  ): Promise<Response>
-
-  put<T = unknown>(
-    input: string | URL,
-    options?: DefaultClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
-
-  put<T = unknown>(
-    input: string | URL,
-    options: JsonClientMethodOptions,
-  ): Promise<T | undefined>
-
-  put(
-    input: string | URL,
-    options: TextClientMethodOptions,
-  ): Promise<string>
-
-  put(
-    input: string | URL,
-    options: BlobClientMethodOptions,
-  ): Promise<Blob>
-
-  put(
-    input: string | URL,
-    options: ArrayBufferClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  put(
-    input: string | URL,
-    options: RawClientMethodOptions,
-  ): Promise<Response>
-
-  patch<T = unknown>(
-    input: string | URL,
-    options?: DefaultClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
-
-  patch<T = unknown>(
-    input: string | URL,
-    options: JsonClientMethodOptions,
-  ): Promise<T | undefined>
-
-  patch(
-    input: string | URL,
-    options: TextClientMethodOptions,
-  ): Promise<string>
-
-  patch(
-    input: string | URL,
-    options: BlobClientMethodOptions,
-  ): Promise<Blob>
-
-  patch(
-    input: string | URL,
-    options: ArrayBufferClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  patch(
-    input: string | URL,
-    options: RawClientMethodOptions,
-  ): Promise<Response>
-
-  delete<T = unknown>(
-    input: string | URL,
-    options?: DefaultClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
-
-  delete<T = unknown>(
-    input: string | URL,
-    options: JsonClientMethodOptions,
-  ): Promise<T | undefined>
-
-  delete(
-    input: string | URL,
-    options: TextClientMethodOptions,
-  ): Promise<string>
-
-  delete(
-    input: string | URL,
-    options: BlobClientMethodOptions,
-  ): Promise<Blob>
-
-  delete(
-    input: string | URL,
-    options: ArrayBufferClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  delete(
-    input: string | URL,
-    options: RawClientMethodOptions,
-  ): Promise<Response>
-
-  head<T = unknown>(
-    input: string | URL,
-    options?: DefaultBodylessClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
-
-  head<T = unknown>(
-    input: string | URL,
-    options: JsonBodylessClientMethodOptions,
-  ): Promise<T | undefined>
-
-  head(
-    input: string | URL,
-    options: TextBodylessClientMethodOptions,
-  ): Promise<string>
-
-  head(
-    input: string | URL,
-    options: BlobBodylessClientMethodOptions,
-  ): Promise<Blob>
-
-  head(
-    input: string | URL,
-    options: ArrayBufferBodylessClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  head(
-    input: string | URL,
-    options: RawBodylessClientMethodOptions,
-  ): Promise<Response>
-
-  options<T = unknown>(
-    input: string | URL,
-    options?: DefaultClientMethodOptions,
-  ): Promise<ResponseResult<T, DefaultResponseType>>
-
-  options<T = unknown>(
-    input: string | URL,
-    options: JsonClientMethodOptions,
-  ): Promise<T | undefined>
-
-  options(
-    input: string | URL,
-    options: TextClientMethodOptions,
-  ): Promise<string>
-
-  options(
-    input: string | URL,
-    options: BlobClientMethodOptions,
-  ): Promise<Blob>
-
-  options(
-    input: string | URL,
-    options: ArrayBufferClientMethodOptions,
-  ): Promise<ArrayBuffer>
-
-  options(
-    input: string | URL,
-    options: RawClientMethodOptions,
-  ): Promise<Response>
+  options: ClientResponseMethod<ClientMethodOptions, DefaultResponseType>
 
   extend<ChildResponseType extends ResponseType>(
     defaults: Omit<ClientDefaults, 'responseType'> & {
@@ -498,79 +274,42 @@ type ResponseResult<T, ResponseMode extends ResponseType> =
           ? ArrayBuffer
           : Response
 
-type DefaultRequestOptions = RequestOptions & {
-  responseType?: never
-}
-
-type JsonRequestOptions = RequestOptions & {
-  responseType: 'json'
-}
-
-type DefaultClientMethodOptions = ClientMethodOptions & {
-  responseType?: never
-}
-
-type JsonClientMethodOptions = ClientMethodOptions & {
-  responseType: 'json'
-}
-
 type BodylessClientMethodOptions = RequestOptionsBase & {
   body?: never
   json?: never
 }
 
-type DefaultBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType?: never
-}
+type ClientResponseMethod<
+  Options,
+  DefaultResponseType extends ResponseType,
+> = {
+  <T = unknown>(
+    input: string | URL,
+    options?: Options & { responseType?: never },
+  ): Promise<ResponseResult<T, DefaultResponseType>>
 
-type JsonBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType: 'json'
-}
+  <T = unknown>(
+    input: string | URL,
+    options: Options & { responseType: 'json' },
+  ): Promise<T | undefined>
 
-type TextRequestOptions = RequestOptions & {
-  responseType: 'text'
-}
+  (
+    input: string | URL,
+    options: Options & { responseType: 'text' },
+  ): Promise<string>
 
-type TextClientMethodOptions = ClientMethodOptions & {
-  responseType: 'text'
-}
+  (
+    input: string | URL,
+    options: Options & { responseType: 'blob' },
+  ): Promise<Blob>
 
-type TextBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType: 'text'
-}
+  (
+    input: string | URL,
+    options: Options & { responseType: 'arrayBuffer' },
+  ): Promise<ArrayBuffer>
 
-type BlobRequestOptions = RequestOptions & {
-  responseType: 'blob'
-}
-
-type BlobClientMethodOptions = ClientMethodOptions & {
-  responseType: 'blob'
-}
-
-type BlobBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType: 'blob'
-}
-
-type ArrayBufferRequestOptions = RequestOptions & {
-  responseType: 'arrayBuffer'
-}
-
-type ArrayBufferClientMethodOptions = ClientMethodOptions & {
-  responseType: 'arrayBuffer'
-}
-
-type ArrayBufferBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType: 'arrayBuffer'
-}
-
-type RawRequestOptions = RequestOptions & {
-  responseType: 'raw'
-}
-
-type RawClientMethodOptions = ClientMethodOptions & {
-  responseType: 'raw'
-}
-
-type RawBodylessClientMethodOptions = BodylessClientMethodOptions & {
-  responseType: 'raw'
+  (
+    input: string | URL,
+    options: Options & { responseType: 'raw' },
+  ): Promise<Response>
 }

@@ -45,6 +45,29 @@ test('public request surfaces reject invalid option containers', async () => {
   )
 })
 
+test('createClient rejects invalid defaults during construction', () => {
+  assert.throws(
+    () => createClient({ timeout: -1 }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`timeout` must be a non-negative finite number',
+  )
+
+  assert.throws(
+    () => createClient({ responseType: 'xml' as never }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === 'Unsupported responseType: xml',
+  )
+
+  assert.throws(
+    () => createClient({ baseURL: 'not a URL' }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`baseURL` must be a string or URL',
+  )
+})
+
 test('createClient resolves baseURL and extend merges headers', async () => {
   const originalFetch = globalThis.fetch
   const requests: Request[] = []

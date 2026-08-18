@@ -16,6 +16,8 @@ import {
 } from './platform-values.js'
 import {
   applyQueryString,
+  freezeQueryInput,
+  isFrozenQueryInput,
   serializeQueryParams,
   serializeValidatedQueryParams,
   snapshotQueryInput,
@@ -208,7 +210,9 @@ function cloneNormalizedRequestOptions(
   }
 
   if (options.query !== undefined) {
-    snapshot.query = snapshotQueryInput(options.query)
+    snapshot.query = isFrozenQueryInput(options.query)
+      ? options.query
+      : snapshotQueryInput(options.query)
   }
 
   if (options.body !== undefined) {
@@ -293,6 +297,7 @@ export function normalizeRequestOptions(
         : DEFAULT_PARSE_JSON,
   )
   const headers = mergeHeaders(defaults.headers, options.headers)
+  const signal = normalizeAbortSignal(options.signal)
 
   const hasJson = Object.hasOwn(options, 'json')
 
@@ -321,7 +326,7 @@ export function normalizeRequestOptions(
   }
 
   if (options.query !== undefined) {
-    normalized.query = snapshotQueryInput(options.query)
+    normalized.query = freezeQueryInput(snapshotQueryInput(options.query))
   }
 
   if (options.body !== undefined) {
@@ -336,11 +341,53 @@ export function normalizeRequestOptions(
     normalized.timeout = timeout
   }
 
-  if (options.signal !== undefined) {
-    normalized.signal = options.signal
+  if (signal !== undefined) {
+    normalized.signal = signal
   }
 
   return normalized
+}
+
+function normalizeAbortSignal(signal: unknown): AbortSignal | undefined {
+  if (signal === undefined) {
+    return undefined
+  }
+
+  const message = '`signal` must be an AbortSignal'
+  if (
+    typeof AbortSignal === 'undefined' ||
+    typeof signal !== 'object' ||
+    signal === null
+  ) {
+    throw new ConfigError(message)
+  }
+
+  try {
+    const abortedGetter = Object.getOwnPropertyDescriptor(
+      AbortSignal.prototype,
+      'aborted',
+    )?.get
+
+    if (abortedGetter === undefined) {
+      if (!(signal instanceof AbortSignal)) {
+        throw new TypeError(message)
+      }
+    } else {
+      abortedGetter.call(signal)
+    }
+
+    const candidate = signal as AbortSignal
+    if (
+      typeof candidate.addEventListener !== 'function' ||
+      typeof candidate.removeEventListener !== 'function'
+    ) {
+      throw new TypeError(message)
+    }
+
+    return candidate
+  } catch (cause) {
+    throw new ConfigError(message, cause)
+  }
 }
 
 export function resolveRequestURL(
@@ -420,7 +467,7 @@ function normalizeMethod(method: unknown): RequestMethod {
   return method.toUpperCase() as RequestMethod
 }
 
-function normalizeTimeout(timeout?: number): number | undefined {
+export function normalizeTimeout(timeout?: number): number | undefined {
   if (timeout === undefined) {
     return undefined
   }
@@ -449,7 +496,7 @@ function normalizeBeforeRequestURL(value: unknown): URL {
   }
 }
 
-function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
+export function normalizeResponseType(responseType: unknown): NormalizedRequestOptions['responseType'] {
   if (
     typeof responseType !== 'string' ||
     !RESPONSE_TYPES.has(responseType as ResponseType)
@@ -460,7 +507,7 @@ function normalizeResponseType(responseType: unknown): NormalizedRequestOptions[
   return responseType as NormalizedRequestOptions['responseType']
 }
 
-function normalizeParseJson(
+export function normalizeParseJson(
   parseJson: unknown,
 ): NormalizedRequestOptions['parseJson'] {
   if (typeof parseJson !== 'function') {
@@ -486,7 +533,7 @@ function resolveInputURL(input: string, base?: URL): URL {
   }
 }
 
-function toAbsoluteURL(value: string | URL, message: string): URL {
+export function toAbsoluteURL(value: string | URL, message: string): URL {
   try {
     return value instanceof URL ? new URL(value) : new URL(value)
   } catch (cause) {

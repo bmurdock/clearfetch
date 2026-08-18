@@ -191,17 +191,94 @@ jobs:
             npm publish "$TARBALL" --ignore-scripts --provenance --registry=https://registry.npmjs.org
           fi
 
-          REGISTRY_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity --registry=https://registry.npmjs.org)"
-          if [ "$REGISTRY_INTEGRITY" != "$ACTUAL_INTEGRITY" ]; then
-            echo "Registry integrity does not match the verified tarball after publish" >&2
-            exit 1
-          fi
+          ATTESTATION_URL="$(
+            PACKAGE_NAME="$PACKAGE_NAME" \
+            PACKAGE_VERSION="$PACKAGE_VERSION" \
+            EXPECTED_INTEGRITY="$ACTUAL_INTEGRITY" \
+            node --input-type=module <<'NODE'
+          const packageName = process.env.PACKAGE_NAME
+          const packageVersion = process.env.PACKAGE_VERSION
+          const expectedIntegrity = process.env.EXPECTED_INTEGRITY
+          const registryURL = new URL(
+            `${encodeURIComponent(packageName)}/${encodeURIComponent(packageVersion)}`,
+            'https://registry.npmjs.org/',
+          )
+          const retryDelaysMs = [1_000, 2_000, 4_000, 8_000, 8_000, 8_000, 8_000]
+          const transientStatuses = new Set([404, 408, 425, 429, 500, 502, 503, 504])
+          let lastTransientFailure = 'registry metadata was not available'
+          let attestationURL
 
-          ATTESTATION_URL="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.attestations.url --registry=https://registry.npmjs.org)"
-          if [ -z "$ATTESTATION_URL" ]; then
-            echo "Published package has no npm attestation URL" >&2
-            exit 1
-          fi
+          class TerminalRegistryError extends Error {}
+
+          for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+            try {
+              const response = await fetch(registryURL, {
+                headers: { accept: 'application/json' },
+                signal: AbortSignal.timeout(5_000),
+              })
+
+              if (!response.ok) {
+                if (!transientStatuses.has(response.status)) {
+                  throw new TerminalRegistryError(
+                    `npm registry metadata request failed with ${response.status}`,
+                  )
+                }
+                lastTransientFailure = `npm registry returned ${response.status}`
+              } else {
+                const metadata = await response.json()
+                const integrity = metadata.dist?.integrity
+                const visibleAttestationURL = metadata.dist?.attestations?.url
+
+                if (integrity !== undefined && integrity !== expectedIntegrity) {
+                  throw new TerminalRegistryError(
+                    'Published integrity does not match the verified tarball',
+                  )
+                }
+
+                if (
+                  integrity === expectedIntegrity &&
+                  typeof visibleAttestationURL === 'string'
+                ) {
+                  attestationURL = visibleAttestationURL
+                  break
+                }
+
+                lastTransientFailure =
+                  integrity === undefined
+                    ? 'published integrity is not visible yet'
+                    : 'published attestation URL is not visible yet'
+              }
+            } catch (error) {
+              if (error instanceof TerminalRegistryError) {
+                throw error
+              }
+              lastTransientFailure =
+                error instanceof Error ? error.message : String(error)
+            }
+
+            if (
+              attestationURL !== undefined ||
+              attempt === retryDelaysMs.length
+            ) {
+              break
+            }
+
+            const delayMs = retryDelaysMs[attempt]
+            console.error(
+              `${lastTransientFailure}; retrying npm metadata in ${delayMs}ms`,
+            )
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
+          }
+
+          if (attestationURL === undefined) {
+            throw new Error(
+              `npm metadata did not become ready: ${lastTransientFailure}`,
+            )
+          }
+
+          console.log(attestationURL)
+          NODE
+          )"
 
           ATTESTATION_DIR="$(mktemp -d)"
           trap 'rm -rf "$ATTESTATION_DIR"' EXIT
@@ -218,12 +295,49 @@ jobs:
           PACKAGE_INTEGRITY="$ACTUAL_INTEGRITY" \
           TAG_NAME="$TAG_NAME" \
           node --input-type=module <<'NODE'
-          const response = await fetch(process.env.ATTESTATION_URL)
-          if (!response.ok) {
-            throw new Error(`npm attestation request failed with ${response.status}`)
+          const retryDelaysMs = [1_000, 2_000, 4_000, 8_000]
+          const transientStatuses = new Set([404, 408, 425, 429, 500, 502, 503, 504])
+          let document
+
+          class TerminalAttestationError extends Error {}
+
+          for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+            try {
+              const response = await fetch(process.env.ATTESTATION_URL, {
+                signal: AbortSignal.timeout(5_000),
+              })
+              if (response.ok) {
+                document = await response.json()
+                break
+              }
+              if (!transientStatuses.has(response.status)) {
+                throw new TerminalAttestationError(
+                  `npm attestation request failed with ${response.status}`,
+                )
+              }
+              console.error(`npm attestation returned ${response.status}`)
+            } catch (error) {
+              if (error instanceof TerminalAttestationError) {
+                throw error
+              }
+              console.error(
+                error instanceof Error ? error.message : String(error),
+              )
+            }
+
+            if (attempt === retryDelaysMs.length) {
+              break
+            }
+
+            const delayMs = retryDelaysMs[attempt]
+            console.error(`retrying npm attestation in ${delayMs}ms`)
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
           }
 
-          const document = await response.json()
+          if (document === undefined) {
+            throw new Error('npm attestation did not become available')
+          }
+
           const provenance = document.attestations?.find(
             (entry) => entry.predicateType === 'https://slsa.dev/provenance/v1',
           )

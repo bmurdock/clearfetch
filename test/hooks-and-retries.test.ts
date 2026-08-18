@@ -148,6 +148,25 @@ test('request timeout surfaces TimeoutError', async () => {
   }
 })
 
+test('request timeout remains authoritative during asynchronous JSON parsing', async () => {
+  await withMockedFetch(
+    async () => new Response('{"ok":true}'),
+    async () => {
+      await assert.rejects(
+        () =>
+          request('https://api.example.com/users', {
+            timeout: 5,
+            parseJson: async (text) => {
+              await new Promise((resolve) => setTimeout(resolve, 25))
+              return JSON.parse(text)
+            },
+          }),
+        (error) => error instanceof TimeoutError && error.timeout === 5,
+      )
+    },
+  )
+})
+
 test('timeout starts after beforeRequest hooks complete', async () => {
   const originalFetch = globalThis.fetch
   let fetchCalls = 0
@@ -1938,6 +1957,30 @@ test('onError observes request normalization failures before rethrow', async () 
     (error) =>
       error instanceof ConfigError &&
       error.message === '`retry.attempts` must be a positive integer',
+  )
+
+  assert.equal(observedErrors.length, 1)
+  assert.ok(observedErrors[0] instanceof ConfigError)
+})
+
+test('invalid abort signals fail as ConfigError and run onError', async () => {
+  const observedErrors: unknown[] = []
+
+  await assert.rejects(
+    () =>
+      request('https://api.example.com/users', {
+        signal: { aborted: false } as never,
+        hooks: {
+          onError: [
+            (context) => {
+              observedErrors.push(context.error)
+            },
+          ],
+        },
+      }),
+    (error) =>
+      error instanceof ConfigError &&
+      error.message === '`signal` must be an AbortSignal',
   )
 
   assert.equal(observedErrors.length, 1)

@@ -21,17 +21,17 @@ if (unexpectedArguments.length > 0) {
 const { stdout } = await execFileAsync('npm', ['pack', '--json', '--ignore-scripts'], {
   cwd: rootDir,
 })
-const [packResult] = JSON.parse(stdout)
+const packResult = selectPackResult(JSON.parse(stdout))
 const tarballPath = path.join(rootDir, packResult.filename)
-
-assertPackedFiles(packResult.files)
-assertPackedSize(packResult)
-
 const packageName = '@gavoryn/clearfetch'
-const tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
+let tempDir
 let tarballRetained = false
 
 try {
+  assertPackedFiles(packResult.files)
+  assertPackedSize(packResult)
+
+  tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
   const importSmokeFile = path.join(tempDir, 'smoke-import.mjs')
   await writeFile(
     importSmokeFile,
@@ -236,13 +236,38 @@ try {
     console.log(`retained verified tarball at ${artifactPath}`)
   }
 } finally {
-  await rm(tempDir, { recursive: true, force: true })
+  if (tempDir !== undefined) {
+    await rm(tempDir, { recursive: true, force: true })
+  }
   if (!tarballRetained) {
     await rm(tarballPath, { force: true })
   }
 }
 
 console.log('packed artifact smoke checks passed')
+
+function selectPackResult(output) {
+  const candidates = Array.isArray(output)
+    ? output
+    : [output, ...(isRecord(output) ? Object.values(output) : [])]
+  const packResult = candidates.find((candidate) => {
+    return (
+      isRecord(candidate) &&
+      typeof candidate.filename === 'string' &&
+      Array.isArray(candidate.files)
+    )
+  })
+
+  if (packResult === undefined) {
+    throw new Error('npm pack did not return a usable package result')
+  }
+
+  return packResult
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
 
 function assertPackedFiles(files) {
   const unexpectedFiles = files

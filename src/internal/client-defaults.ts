@@ -10,6 +10,12 @@ import {
   normalizeBeforeRequestHooks,
   normalizeOnErrorHooks,
 } from './hooks.js'
+import {
+  normalizeParseJson,
+  normalizeResponseType,
+  normalizeTimeout,
+  toAbsoluteURL,
+} from './normalize-request.js'
 import { normalizeRetry } from './retry-policy.js'
 
 export function mergeClientDefaults(
@@ -141,17 +147,15 @@ function snapshotBaseURL(
   }
 
   if (typeof defaults.baseURL === 'string') {
+    toAbsoluteURL(defaults.baseURL, '`baseURL` must be a string or URL')
     snapshot.baseURL = defaults.baseURL
     return
   }
 
-  try {
-    snapshot.baseURL = new URL(
-      URL.prototype.toString.call(defaults.baseURL),
-    )
-  } catch (cause) {
-    throw new ConfigError('`baseURL` must be a string or URL', cause)
-  }
+  snapshot.baseURL = toAbsoluteURL(
+    defaults.baseURL,
+    '`baseURL` must be a string or URL',
+  )
 }
 
 function snapshotHeaders(
@@ -168,11 +172,14 @@ function snapshotScalarDefaults(
   defaults: ClientDefaults,
 ): void {
   if (defaults.timeout !== undefined) {
-    snapshot.timeout = defaults.timeout
+    const timeout = normalizeTimeout(defaults.timeout)
+    if (timeout !== undefined) {
+      snapshot.timeout = timeout
+    }
   }
 
   if (defaults.responseType !== undefined) {
-    snapshot.responseType = defaults.responseType
+    snapshot.responseType = normalizeResponseType(defaults.responseType)
   }
 }
 
@@ -199,7 +206,7 @@ function snapshotParseJsonDefault(
   defaults: ClientDefaults,
 ): void {
   if (defaults.parseJson !== undefined) {
-    snapshot.parseJson = defaults.parseJson
+    snapshot.parseJson = normalizeParseJson(defaults.parseJson)
   }
 }
 

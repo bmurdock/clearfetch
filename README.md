@@ -365,6 +365,7 @@ const user = User.parse(data)
 
 - Non-2xx responses throw `HttpError`.
 - `HttpError.bodyText` capture is bounded and may be truncated for very large payloads.
+- `HttpError.bodyText` capture also has a 250ms diagnostic read budget, so stalled error bodies cannot delay HTTP classification indefinitely; partial captures are marked as truncated.
 - `ParseError.bodyText` capture is also bounded and may be truncated for very large invalid JSON payloads.
 - `HttpError.response` remains available for status, headers, and metadata, but its body may already be consumed or canceled by diagnostic `bodyText` capture.
 - JSON mode returns `undefined` for empty response bodies.
@@ -372,7 +373,8 @@ const user = User.parse(data)
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
 - Timeout and retry-delay values may not exceed `2,147,483,647` milliseconds, the maximum reliable platform timer delay.
 - After the timeout window starts, expiration remains authoritative through `afterResponse` hooks and response parsing.
-- Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`.
+- Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`. `createClient()` and `extend()` also validate supplied client defaults during construction.
+- Invalid request abort signals fail with `ConfigError`; native signals from another browser realm remain supported.
 - Hook, request-normalization, retry rebuild, and request-construction failures are not wrapped as `NetworkError`.
 - Each `afterResponse` hook receives an independently readable cloned `Response` for safe inspection.
 - Relative request inputs require `baseURL`.
@@ -388,6 +390,7 @@ const user = User.parse(data)
 ## Advanced behavior notes
 
 - Timeout windows are per attempt when retries are enabled. A configured `timeout` is not a total deadline across all retry attempts.
+- Custom `parseJson` functions may return a value or promise. Rejections become `ParseError`, and active timeout or external-abort signals remain authoritative while an asynchronous parser is pending.
 - External abort signals surface as `AbortRequestError`, including when the signal was aborted with a custom reason.
 - External abort beats timeout if it happens first; timeout beats external abort if the timeout fires first.
 - Timeout aborts surface as `TimeoutError`.

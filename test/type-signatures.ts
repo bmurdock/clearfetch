@@ -179,6 +179,30 @@ const typedRawPromise = client.get('https://api.example.com/raw', {
 const typedClientRawPromise: Promise<Response> = typedRawPromise
 void typedClientRawPromise
 
+const typedPutTextPromise: Promise<string> = client.put(
+  'https://api.example.com/put',
+  { responseType: 'text' },
+)
+const typedPatchBlobPromise: Promise<Blob> = client.patch(
+  'https://api.example.com/patch',
+  { responseType: 'blob' },
+)
+const typedDeleteArrayBufferPromise: Promise<ArrayBuffer> = client.delete(
+  'https://api.example.com/delete',
+  { responseType: 'arrayBuffer' },
+)
+const typedHeadRawPromise: Promise<Response> = client.head(
+  'https://api.example.com/head',
+  { responseType: 'raw' },
+)
+const typedOptionsJsonPromise: Promise<{ ok: boolean } | undefined> =
+  client.options<{ ok: boolean }>('https://api.example.com/options')
+void typedPutTextPromise
+void typedPatchBlobPromise
+void typedDeleteArrayBufferPromise
+void typedHeadRawPromise
+void typedOptionsJsonPromise
+
 // @ts-expect-error raw mode resolves to Promise<Response>
 const invalidRawPromise: Promise<{ statusCode: number } | undefined> = rawPromise
 void invalidRawPromise

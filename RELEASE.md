@@ -15,6 +15,11 @@ Expected flow:
 7. Let the `Release` workflow verify and upload one exact tarball, publish that artifact to npm, and create or verify the matching GitHub Release record.
 8. Confirm npm and GitHub Releases show the same current version.
 
+After publication, registry integrity, attestation metadata, and the attestation
+document are verified with bounded retry/backoff so normal npm propagation delay
+does not leave an otherwise successful release incomplete. Integrity mismatches
+and non-transient registry failures remain terminal.
+
 Local `npm publish` should not be used for normal releases.
 
 The tag must match the package version exactly, for example package version

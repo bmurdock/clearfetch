@@ -535,12 +535,15 @@ async function parseWithHandling<T>(params: {
   }
 
   try {
-    return (await parseResponse<T>({
-      request,
-      response,
-      responseType: context.normalizedOptions.responseType,
-      parseJson: context.normalizedOptions.parseJson,
-    })) as T | Response | string | Blob | ArrayBuffer | undefined
+    return (await waitForResultOrAbort(
+      parseResponse<T>({
+        request,
+        response,
+        responseType: context.normalizedOptions.responseType,
+        parseJson: context.normalizedOptions.parseJson,
+      }),
+      request.signal,
+    )) as T | Response | string | Blob | ArrayBuffer | undefined
   } catch (error) {
     const normalized = normalizeExecutionError(
       context.normalizedOptions.timeout !== undefined && timeout.didTimeout()
@@ -587,6 +590,50 @@ async function parseWithHandling<T>(params: {
 
     throw normalized
   }
+}
+
+function waitForResultOrAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason ?? new DOMException('Request was aborted', 'AbortError'),
+    )
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const onAbort = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      reject(
+        signal.reason ?? new DOMException('Request was aborted', 'AbortError'),
+      )
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true })
+    void promise.then(
+      (value) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
 }
 
 function cancelResponseBody(response: Response): void {
