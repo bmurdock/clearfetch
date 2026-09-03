@@ -48,12 +48,14 @@ export async function executeRequest<T = unknown>(
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
   fetchImpl: FetchLike = fetch,
+  method?: RequestMethod,
 ): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
   // Determine retry bounds from a normalized first pass, then rebuild the
   // full execution context per attempt so hook mutations do not leak across retries.
   let initialContext: ExecutionBeforeRequestContext
   try {
-    initialContext = createBeforeRequestContext(input, defaults, options)
+    const methodOptions = createMethodOptions(options, method)
+    initialContext = createBeforeRequestContext(input, defaults, methodOptions)
   } catch (error) {
     let onErrorHooks: OnErrorHook[]
     try {
@@ -256,16 +258,23 @@ function createMethodCaller(
   return <T = unknown>(
     input: string | URL,
     options: RequestOptions = {},
-  ) => {
-    const methodOptions =
-      typeof options === 'object' &&
-      options !== null &&
-      !Array.isArray(options)
-        ? { ...options, method } as RequestOptions
-        : options
+  ) => executeRequest<T>(input, defaults, options, fetch, method)
+}
 
-    return executeRequest<T>(input, defaults, methodOptions)
+function createMethodOptions(
+  options: RequestOptions,
+  method?: RequestMethod,
+): RequestOptions {
+  if (
+    method === undefined ||
+    typeof options !== 'object' ||
+    options === null ||
+    Array.isArray(options)
+  ) {
+    return options
   }
+
+  return { ...options, method } as RequestOptions
 }
 
 async function runBeforeRequestHooks(

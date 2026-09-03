@@ -165,6 +165,20 @@ test('createHookRequestOptions omits optional metadata keys when absent', () => 
   assert.equal(Object.hasOwn(snapshot, 'signal'), false)
 })
 
+test('createHookRequestOptions exposes timeout and signal metadata', () => {
+  const signal = new AbortController().signal
+  const snapshot = createHookRequestOptions(
+    createOptions({ signal, timeout: 123 }),
+    DEFAULT_METADATA,
+  )
+
+  assert.equal(snapshot.timeout, 123)
+  assert.equal(snapshot.signal, signal)
+  assert.equal(Object.hasOwn(snapshot, 'timeout'), true)
+  assert.equal(Object.hasOwn(snapshot, 'signal'), true)
+  assert.equal(Object.isFrozen(snapshot), true)
+})
+
 test('createHookRequestOptions sets retry to exactly false when retries are disabled', () => {
   const snapshot = createHookRequestOptions(
     createOptions({ retry: false }),

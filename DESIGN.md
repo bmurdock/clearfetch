@@ -161,9 +161,12 @@ This package is designed for modern JavaScript runtimes that provide native `fet
 
 The minimum supported Node.js version should be declared in `package.json` under `engines`. The implementation should target only runtimes that satisfy that requirement.
 
-The published declaration surface supports TypeScript 5.0 and newer. CI must
-compile a consumer fixture with the minimum supported TypeScript version so
-type-surface changes do not silently raise that floor.
+The published declaration surface supports TypeScript 5.0 through 7.x. CI must
+compile a consumer fixture with the minimum supported TypeScript version, the
+TypeScript 6 transition compiler, and the current TypeScript 7 compiler so
+type-surface changes do not silently raise the floor or break a supported major
+version. Future TypeScript major versions become supported only after explicit
+validation.
 
 ### Module strategy
 
@@ -175,6 +178,17 @@ The npm artifact ships JavaScript source maps for mapped stack traces. It does
 not ship declaration maps because TypeScript source files are not included in
 the package. Packed bytes, unpacked bytes, and file count are bounded by
 deliberate package-smoke budgets so the small-package goal remains measurable.
+
+### Performance evidence
+
+Performance proposals should be supported by repeatable workload evidence.
+The repository benchmark harness measures selected internal costs without
+adding runtime or development dependencies. Recorded results must identify the
+source and host environment and remain descriptive observations rather than
+cross-platform guarantees. CI and release checks may smoke-test the harness but
+must not enforce timing thresholds until stable variance and an explicit budget
+justify doing so. Optimizations must preserve documented isolation,
+replayability, hook ordering, and cancellation behavior.
 
 ---
 

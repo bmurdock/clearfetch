@@ -164,8 +164,17 @@ const api = createClient({
 const response = await api.get('/status')
 ```
 
-Retries are disabled by default. When enabled, they are intentionally conservative. Streaming request bodies are rejected when the request method is eligible for multiple attempts.
-They are a convenience for bounded retry cases, not a general resilience framework.
+`attempts` includes the initial request. For example, `attempts: 3` permits up to
+three total attempts, including up to two retries.
+
+When an eligible request has attempts remaining, clearfetch retries a
+`NetworkError`. It retries HTTP responses only when their status appears in
+`retryOnStatuses`.
+
+Retries are disabled by default. When enabled, they remain intentionally
+conservative. Streaming request bodies are rejected when the request method is
+eligible for multiple attempts. Retries are a convenience for bounded cases,
+not a general resilience framework.
 Retried `FormData` preserves field values and file contents, names, and media
 types, but native multipart boundary encoding is not guaranteed to be
 byte-for-byte identical between attempts. Pre-serialize a body when exact bytes
@@ -270,7 +279,10 @@ const api = createClient({
 
 ```ts
 import {
+  AbortRequestError,
+  ConfigError,
   HttpError,
+  NetworkError,
   ParseError,
   TimeoutError,
   createClient,
@@ -292,9 +304,19 @@ try {
     console.error(error.bodyText)
   } else if (error instanceof TimeoutError) {
     console.error(error.timeout)
+  } else if (error instanceof NetworkError) {
+    console.error('Network request failed', error.cause)
+  } else if (error instanceof AbortRequestError) {
+    console.error('Request cancelled', error.cause)
+  } else if (error instanceof ConfigError) {
+    console.error('Invalid request configuration', error.message)
   }
 }
 ```
+
+The exported error classes cover configuration, network, timeout, cancellation,
+HTTP-status, and response-parsing failures. `isHttpClientError()` can identify
+the library's error types before more specific `instanceof` handling.
 
 ### Text and raw responses
 
@@ -421,7 +443,7 @@ clearfetch currently supports:
 
 - Node.js `18.x` and newer for package compatibility
 - modern browsers with native `fetch`, `Request`, `Response`, `Headers`, `URL`, and `AbortController`
-- TypeScript `5.0` and newer for the published declaration surface
+- TypeScript `5.0` through `7.x` for the published declaration surface
 
 The package is ESM-only and does not target legacy runtimes or polyfill-driven environments.
 Features that accept `Blob`, `File`, `FormData`, `URLSearchParams`, or
@@ -439,16 +461,22 @@ Node.js releases do not receive upstream security fixes.
 ## Release and CI
 
 - CI lints GitHub Actions workflows before merge.
-- CI runs lint, test, and build checks across the declared Node.js compatibility matrix, including Node.js `26`.
+- CI runs lint, unit tests, native Node HTTP integration, and build checks across the declared Node.js compatibility matrix, including Node.js `26`.
 - CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `24`.
 - CI runs a focused real-Chromium test for native values created in another browser realm.
-- CI verifies the published declaration surface with TypeScript `5.0`.
+- CI verifies the published declaration surface with the TypeScript `5.0`
+  minimum, the TypeScript `6.0` transition compiler, and the current TypeScript
+  `7.x` compiler. Future TypeScript major versions are supported after explicit
+  validation.
 - Dependency review is enforced for pull requests and supports manual base/head validation.
 - CI rejects non-registry lockfile sources, missing SHA-512 integrity, and unreviewed install scripts before dependency installation.
 - Automated installs disable dependency lifecycle scripts, and a weekly read-only audit checks advisories, registry signatures, and attestations.
 - The release workflow supports a non-publishing dry-run path via manual dispatch.
 - npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
-- The release workflow publishes the exact smoke-tested tarball with provenance from an OIDC-only job; a separate write-only job creates or verifies the matching GitHub Release record.
+- The release workflow publishes the exact smoke-tested tarball with provenance
+  using OIDC-based npm authentication. The publish job has read-only repository
+  access, and a separate job with repository-write access creates or verifies
+  the matching GitHub Release record.
 - Normal releases are expected to publish from GitHub Actions, not from local machines.
 - Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
 
@@ -467,6 +495,8 @@ The public package surface is intentionally narrow:
 
 - `npm ci --ignore-scripts --registry=https://registry.npmjs.org`: install locked development dependencies without lifecycle scripts
 - `npm run build`: compile the package into `dist/`
+- `npm run benchmark`: run the dependency-free local performance harness without enforcing timing thresholds
+- `npm run benchmark:smoke`: run every benchmark scenario with minimal sampling to verify the harness
 - `npm run check:lockfile`: validate lockfile origins, integrity, development-only scope, and the reviewed install-script allowlist
 - `npm run check:dependency-audit`: fail on moderate-or-higher known dependency advisories
 - `npm run check:dependency-signatures`: verify installed-package registry signatures and attestations
@@ -474,10 +504,17 @@ The public package surface is intentionally narrow:
 - `npm run check:pack-smoke`: smoke-test the packed tarball from a clean temporary install
 - `npm run check:publish-dry-run`: dry-run unpublished workspace versions; pass a retained `.tgz` to compare exact registry integrity for an existing version, or use `-- --allow-existing` only for non-publishing validation
 - `npm run lint`: run TypeScript static checks
-- `npm test`: run the test suite
+- `npm test`: run unit and workflow-contract tests
+- `npm run test:node-integration`: run the public client against a deterministic localhost server through native Node `fetch`
 - `npm run test:browser-like`: run browser-like package entrypoint coverage with `happy-dom`
 - `npm run test:browser-real`: build and run focused cross-realm coverage in Chromium; run `node node_modules/playwright/cli.js install chromium` once before the first local invocation
-- `npm run test:types-compat`: build and compile a consumer fixture with the minimum supported TypeScript version
+- `npm run test:types-compat`: build and compile a consumer fixture with the TypeScript 5.0 minimum, TypeScript 6.0 transition compiler, and current TypeScript 7.x compiler
+
+The benchmark harness covers large query objects, retry-context rebuilding,
+response hooks, and retryable request bodies. Reports are environment-labeled
+observations rather than performance guarantees. See
+[the benchmark guide](https://github.com/bmurdock/clearfetch/blob/main/benchmark/README.md)
+for recording and comparison guidance.
 
 ## Status
 

@@ -14,6 +14,8 @@ Thanks for the interest in improving `clearfetch`.
 - `npm ci --ignore-scripts --registry=https://registry.npmjs.org`
 - `npm run lint`
 - `npm test`
+- `npm run test:node-integration`
+- `npm run benchmark:smoke`
 - `npm run test:browser-like`
 - `node node_modules/playwright/cli.js install chromium` once before the first real-browser test
 - `npm run test:browser-real`

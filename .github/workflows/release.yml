@@ -74,8 +74,10 @@ jobs:
         run: |
           npm run lint
           npm test
+          npm run test:node-integration
           npm run test:browser-like
           npm run build
+          npm run benchmark:smoke
           npm run test:types-compat
           npm run check:package-metadata
           npm run check:dependency-audit
@@ -124,9 +126,15 @@ jobs:
     timeout-minutes: 10
     environment: npm
     permissions:
+      contents: read
       id-token: write
 
     steps:
+      - name: Check out release verification code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -195,89 +203,7 @@ jobs:
             PACKAGE_NAME="$PACKAGE_NAME" \
             PACKAGE_VERSION="$PACKAGE_VERSION" \
             EXPECTED_INTEGRITY="$ACTUAL_INTEGRITY" \
-            node --input-type=module <<'NODE'
-          const packageName = process.env.PACKAGE_NAME
-          const packageVersion = process.env.PACKAGE_VERSION
-          const expectedIntegrity = process.env.EXPECTED_INTEGRITY
-          const registryURL = new URL(
-            `${encodeURIComponent(packageName)}/${encodeURIComponent(packageVersion)}`,
-            'https://registry.npmjs.org/',
-          )
-          const retryDelaysMs = [1_000, 2_000, 4_000, 8_000, 8_000, 8_000, 8_000]
-          const transientStatuses = new Set([404, 408, 425, 429, 500, 502, 503, 504])
-          let lastTransientFailure = 'registry metadata was not available'
-          let attestationURL
-
-          class TerminalRegistryError extends Error {}
-
-          for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
-            try {
-              const response = await fetch(registryURL, {
-                headers: { accept: 'application/json' },
-                signal: AbortSignal.timeout(5_000),
-              })
-
-              if (!response.ok) {
-                if (!transientStatuses.has(response.status)) {
-                  throw new TerminalRegistryError(
-                    `npm registry metadata request failed with ${response.status}`,
-                  )
-                }
-                lastTransientFailure = `npm registry returned ${response.status}`
-              } else {
-                const metadata = await response.json()
-                const integrity = metadata.dist?.integrity
-                const visibleAttestationURL = metadata.dist?.attestations?.url
-
-                if (integrity !== undefined && integrity !== expectedIntegrity) {
-                  throw new TerminalRegistryError(
-                    'Published integrity does not match the verified tarball',
-                  )
-                }
-
-                if (
-                  integrity === expectedIntegrity &&
-                  typeof visibleAttestationURL === 'string'
-                ) {
-                  attestationURL = visibleAttestationURL
-                  break
-                }
-
-                lastTransientFailure =
-                  integrity === undefined
-                    ? 'published integrity is not visible yet'
-                    : 'published attestation URL is not visible yet'
-              }
-            } catch (error) {
-              if (error instanceof TerminalRegistryError) {
-                throw error
-              }
-              lastTransientFailure =
-                error instanceof Error ? error.message : String(error)
-            }
-
-            if (
-              attestationURL !== undefined ||
-              attempt === retryDelaysMs.length
-            ) {
-              break
-            }
-
-            const delayMs = retryDelaysMs[attempt]
-            console.error(
-              `${lastTransientFailure}; retrying npm metadata in ${delayMs}ms`,
-            )
-            await new Promise((resolve) => setTimeout(resolve, delayMs))
-          }
-
-          if (attestationURL === undefined) {
-            throw new Error(
-              `npm metadata did not become ready: ${lastTransientFailure}`,
-            )
-          }
-
-          console.log(attestationURL)
-          NODE
+            node scripts/verify-release.mjs registry-metadata
           )"
 
           ATTESTATION_DIR="$(mktemp -d)"
@@ -294,97 +220,7 @@ jobs:
           PACKAGE_VERSION="$PACKAGE_VERSION" \
           PACKAGE_INTEGRITY="$ACTUAL_INTEGRITY" \
           TAG_NAME="$TAG_NAME" \
-          node --input-type=module <<'NODE'
-          const retryDelaysMs = [1_000, 2_000, 4_000, 8_000]
-          const transientStatuses = new Set([404, 408, 425, 429, 500, 502, 503, 504])
-          let document
-
-          class TerminalAttestationError extends Error {}
-
-          for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
-            try {
-              const response = await fetch(process.env.ATTESTATION_URL, {
-                signal: AbortSignal.timeout(5_000),
-              })
-              if (response.ok) {
-                document = await response.json()
-                break
-              }
-              if (!transientStatuses.has(response.status)) {
-                throw new TerminalAttestationError(
-                  `npm attestation request failed with ${response.status}`,
-                )
-              }
-              console.error(`npm attestation returned ${response.status}`)
-            } catch (error) {
-              if (error instanceof TerminalAttestationError) {
-                throw error
-              }
-              console.error(
-                error instanceof Error ? error.message : String(error),
-              )
-            }
-
-            if (attempt === retryDelaysMs.length) {
-              break
-            }
-
-            const delayMs = retryDelaysMs[attempt]
-            console.error(`retrying npm attestation in ${delayMs}ms`)
-            await new Promise((resolve) => setTimeout(resolve, delayMs))
-          }
-
-          if (document === undefined) {
-            throw new Error('npm attestation did not become available')
-          }
-
-          const provenance = document.attestations?.find(
-            (entry) => entry.predicateType === 'https://slsa.dev/provenance/v1',
-          )
-          if (provenance === undefined) {
-            throw new Error('published package has no SLSA provenance attestation')
-          }
-
-          const statement = JSON.parse(
-            Buffer.from(provenance.bundle.dsseEnvelope.payload, 'base64').toString('utf8'),
-          )
-          const expectedDigest = Buffer.from(
-            process.env.PACKAGE_INTEGRITY.slice('sha512-'.length),
-            'base64',
-          ).toString('hex')
-          const expectedSubject = `pkg:npm/${process.env.PACKAGE_NAME.replace(/^@/, '%40')}@${process.env.PACKAGE_VERSION}`
-          const subject = statement.subject?.find((entry) => entry.name === expectedSubject)
-          if (subject?.digest?.sha512 !== expectedDigest) {
-            throw new Error('SLSA subject does not match the published package bytes')
-          }
-
-          const workflow = statement.predicate?.buildDefinition?.externalParameters?.workflow
-          const expectedRepository = `https://github.com/${process.env.GITHUB_REPOSITORY}`
-          const expectedRef = `refs/tags/${process.env.TAG_NAME}`
-          if (
-            workflow?.repository !== expectedRepository ||
-            workflow?.path !== '.github/workflows/release.yml' ||
-            workflow?.ref !== expectedRef
-          ) {
-            throw new Error('SLSA provenance does not identify the expected release workflow')
-          }
-
-          const expectedSource = `git+${expectedRepository}@${expectedRef}`
-          const source = statement.predicate?.buildDefinition?.resolvedDependencies?.find(
-            (entry) => entry.uri === expectedSource,
-          )
-          if (source?.digest?.gitCommit !== process.env.GITHUB_SHA) {
-            throw new Error('SLSA provenance does not identify the release commit')
-          }
-
-          if (
-            statement.predicate?.buildDefinition?.internalParameters?.github?.event_name !== 'push'
-          ) {
-            throw new Error('SLSA provenance was not produced by a tag push')
-          }
-
-          console.log('npm provenance matches the expected artifact, workflow, tag, and commit')
-          NODE
+          node scripts/verify-release.mjs attestation
 
   github-release:
     if: github.event_name == 'push'

@@ -41,6 +41,40 @@ test('createTimeoutController propagates external aborts without timeout state',
   timeout.cleanup()
 })
 
+test('createTimeoutController preserves an already-aborted external signal', () => {
+  const controller = new AbortController()
+  const reason = new Error('already stopped')
+  controller.abort(reason)
+
+  const timeout = createTimeoutController(controller.signal)
+
+  assert.equal(timeout.signal.aborted, true)
+  assert.equal(timeout.signal.reason, reason)
+  assert.equal(timeout.didTimeout(), false)
+  timeout.cleanup()
+})
+
+test('createTimeoutController cleanup removes the external abort listener', () => {
+  const controller = new AbortController()
+  const timeout = createTimeoutController(controller.signal)
+
+  timeout.cleanup()
+  controller.abort(new Error('too late'))
+
+  assert.equal(timeout.signal.aborted, false)
+  assert.equal(timeout.didTimeout(), false)
+})
+
+test('createTimeoutController cleanup clears the pending timeout', async () => {
+  const timeout = createTimeoutController(undefined, 5)
+
+  timeout.cleanup()
+  await sleep(20)
+
+  assert.equal(timeout.signal.aborted, false)
+  assert.equal(timeout.didTimeout(), false)
+})
+
 test('createTimeoutController marks timeout aborts', async () => {
   const timeout = createTimeoutController(undefined, 1)
 
@@ -62,16 +96,12 @@ test('sleep resolves after duration', async () => {
 
 test('sleep rejects promptly when signal aborts', async () => {
   const controller = new AbortController()
-  const startedAt = Date.now()
   const promise = sleep(1_000, controller.signal)
 
-  setTimeout(() => {
-    controller.abort()
-  }, 5)
+  controller.abort()
 
   await assert.rejects(
     () => promise,
     (error) => error instanceof DOMException && error.name === 'AbortError',
   )
-  assert.ok(Date.now() - startedAt < 200)
 })

@@ -7,6 +7,17 @@ their npm publications and Git tags remain the historical release evidence.
 
 ## Unreleased
 
+## 1.0.9
+
+- route option-materialization failures from method helpers through configured
+  `onError` hooks before rethrowing, matching direct `request()` behavior
+- build with TypeScript 7 while preserving the TypeScript 5.0 declaration
+  floor, add TypeScript 6 transition coverage, and broaden emitted-declaration
+  compatibility checks across the public type contract
+- add a dependency-free benchmark harness for large query objects,
+  retry-context rebuilding, response hooks, and retryable bodies, with
+  environment-labeled baselines and threshold-free CI smoke coverage
+
 ## 1.0.8
 
 - validate all supplied client defaults during `createClient()` and `extend()`
