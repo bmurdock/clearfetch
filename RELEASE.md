@@ -70,6 +70,8 @@ npm ci --ignore-scripts --no-audit --registry=https://registry.npmjs.org
 npm run check:lockfile
 npm run lint
 npm test
+npm run test:node-integration
+npm run benchmark:smoke
 npm run test:browser-like
 npm run test:browser-real
 npm run test:types-compat
@@ -143,7 +145,11 @@ The release workflow assumes:
 The release workflow separates authority across three jobs:
 
 - `verify-release` has read-only repository access, disables dependency lifecycle scripts and caching, runs all package and dependency checks, and uploads the exact smoke-tested tarball
-- `publish` has no checkout or development dependencies and receives only `id-token: write`; it downloads, re-verifies, and publishes the exact tarball, then verifies npm signatures and the expected provenance identity
+- `publish` has read-only repository access to the checked-in release-verification
+  script, installs no repository development dependencies, and receives
+  `contents: read` plus `id-token: write`; it downloads, re-verifies, and
+  publishes the exact tarball, then verifies npm signatures and the expected
+  provenance identity
 - `github-release` receives only `contents: write` and creates or verifies the GitHub Release after npm publication succeeds
 
 No job holds both npm publication authority and repository-write authority.
@@ -162,4 +168,4 @@ The release process must preserve the package’s public claims:
 - no hidden network behavior beyond the caller's request
 - package compatibility starting at Node.js `18+`, with security support limited to upstream-supported Node.js release lines
 - modern browsers with the native web platform APIs documented in `README.md`
-- TypeScript `5.0+` for the published declaration surface
+- TypeScript `5.0` through `7.x` for the published declaration surface

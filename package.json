@@ -1,6 +1,6 @@
 {
   "name": "@gavoryn/clearfetch",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript runtimes.",
   "type": "module",
   "sideEffects": false,
@@ -19,6 +19,8 @@
     }
   },
   "scripts": {
+    "benchmark": "npm run build && node benchmark/run.mjs",
+    "benchmark:smoke": "npm run build && node benchmark/run.mjs --smoke",
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "check:dependency-audit": "npm audit --audit-level=moderate --registry=https://registry.npmjs.org",
     "check:dependency-signatures": "npm audit signatures --registry=https://registry.npmjs.org",
@@ -30,7 +32,11 @@
     "test": "tsx --test test/*.test.ts",
     "test:browser-like": "tsx --test test/browser-like.browser.ts",
     "test:browser-real": "npm run build && tsx --test test/browser-real.browser.ts",
-    "test:types-compat": "npm run build && node node_modules/typescript-v5/bin/tsc -p test/tsconfig.types-compat.json"
+    "test:node-integration": "tsx --test test/node-http.integration.ts",
+    "test:types-compat": "npm run build && npm run test:types-compat:minimum && npm run test:types-compat:bridge && npm run test:types-compat:current",
+    "test:types-compat:minimum": "node node_modules/typescript-v5/bin/tsc -p test/tsconfig.types-compat.json",
+    "test:types-compat:bridge": "tsc6 -p test/tsconfig.types-compat.json",
+    "test:types-compat:current": "node node_modules/typescript/bin/tsc -p test/tsconfig.types-compat.json"
   },
   "keywords": [
     "fetch",
@@ -51,10 +57,11 @@
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
+    "@typescript/typescript6": "6.0.2",
     "happy-dom": "^20.8.9",
     "playwright": "1.61.1",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2",
+    "typescript": "^7.0.2",
     "typescript-v5": "npm:typescript@5.0.4"
   },
   "overrides": {

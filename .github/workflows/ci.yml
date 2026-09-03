@@ -67,6 +67,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Test native Node HTTP integration
+        run: npm run test:node-integration
+
       - name: Build
         run: npm run build
 
@@ -156,6 +159,9 @@ jobs:
 
       - name: Build package
         run: npm run build
+
+      - name: Smoke-test benchmark harness
+        run: npm run benchmark:smoke
 
       - name: Verify TypeScript compatibility
         run: npm run test:types-compat

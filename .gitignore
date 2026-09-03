@@ -6,6 +6,7 @@ coverage/
 ignore/
 docs/
 release-artifact/
+benchmark-results/
 *.tsbuildinfo
 
 npm-debug.log*
