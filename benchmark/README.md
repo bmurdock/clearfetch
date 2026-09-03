@@ -26,9 +26,9 @@ changes on the same machine and Node.js version whenever possible. Checked-in
 results are observations, not service-level objectives or proof of performance
 on other hardware.
 
-The initial `v1.0.9-planning` baseline intentionally records the current dirty
-release-planning worktree. Refresh it from a clean release-candidate commit
-before treating it as the canonical v1.0.9 reference.
+The checked-in `v1.0.9` baseline records a clean release-candidate commit. It
+remains descriptive evidence for the recorded environment, not a portable
+performance target.
 
 The harness must not motivate changes that weaken caller isolation, retry-body
 replayability, independent sequential response hooks, or other documented
