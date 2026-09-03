@@ -261,6 +261,7 @@ test('afterResponse hook failures cancel the abandoned response body', async () 
         new ReadableStream({
           start(controller) {
             controller.enqueue(new TextEncoder().encode('response'))
+            controller.close()
           },
         }),
       ), () => {

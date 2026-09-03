@@ -8,12 +8,15 @@ export function trackOriginalResponseBodyCancellation(
   response.clone = () => {
     const clonedResponse = clone()
     const body = response.body
+    const clonedBody = clonedResponse.body
     assert.notEqual(body, null)
-    const cancel = body!.cancel.bind(body)
-    body!.cancel = (reason) => {
+    assert.notEqual(clonedBody, null)
+    // Observe both tee branches without awaiting Node 18 cancellation promises,
+    // which can remain pending until the sibling branch settles.
+    body!.cancel = async () => {
       onCancel()
-      return cancel(reason)
     }
+    clonedBody!.cancel = async () => {}
     return clonedResponse
   }
   return response

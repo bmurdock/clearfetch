@@ -458,6 +458,7 @@ test('retryable HTTP responses cancel bodies after observational response hooks'
       return trackOriginalResponseBodyCancellation(new Response(new ReadableStream({
         start(controller) {
           controller.enqueue(new TextEncoder().encode('retry'))
+          controller.close()
         },
       }), {
         status: 503,
