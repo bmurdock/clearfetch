@@ -349,6 +349,13 @@ const jsonStatus = await textApi.get<{ ok: boolean }>('/status', {
 Client-level `responseType` defaults are reflected in the returned client type.
 A request-level `responseType` still overrides the client default.
 
+For explicit client annotations, use `HttpClient<'text'>`, `HttpClient<'raw'>`,
+or the appropriate response mode. Plain `HttpClient` means JSON;
+`HttpClient<ResponseType>` represents a client whose default mode is dynamic.
+Non-JSON and dynamic clients cannot be assigned to a JSON client type.
+Forwarding a `RequestOptions` value is supported; when its response mode is
+unknown, the returned type includes all possible response results.
+
 ### Runtime validation
 
 TypeScript generics describe the expected response shape, but they do not validate response data at runtime.

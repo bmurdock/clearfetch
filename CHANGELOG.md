@@ -7,6 +7,11 @@ their npm publications and Git tags remain the historical release evidence.
 
 ## Unreleased
 
+- correct client response-mode types: non-JSON and dynamic clients no longer
+  satisfy the JSON-default `HttpClient` type; affected annotations must specify
+  their response mode (a TypeScript compatibility change)
+- accept forwarded `RequestOptions` and dynamic response modes through public
+  overloads with appropriately broad result types
 - classify cancellation with a clearfetch error as its reason as
   `AbortRequestError`, preserving that reason as the cause
 

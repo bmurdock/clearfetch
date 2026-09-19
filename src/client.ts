@@ -11,7 +11,7 @@ export function createClient<DefaultResponseType extends ResponseType>(
   defaults: Omit<ClientDefaults, 'responseType'> & {
     responseType: DefaultResponseType
   },
-): HttpClient<DefaultResponseType> & HttpClient
+): HttpClient<DefaultResponseType>
 
 export function createClient(
   defaults?: Omit<ClientDefaults, 'responseType'> & {
@@ -21,7 +21,7 @@ export function createClient(
 
 export function createClient(
   defaults: ClientDefaults,
-): HttpClient<ResponseType> & HttpClient
+): HttpClient<ResponseType>
 
 export function createClient(
   defaults: ClientDefaults = {},

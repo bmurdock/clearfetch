@@ -230,8 +230,9 @@ export interface NormalizedRequestOptions {
 
 /**
  * Reusable client API produced by `createClient()`.
+ * The default mode is covariant so a dynamic mode cannot be narrowed to JSON.
  */
-export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
+export interface HttpClient<out DefaultResponseType extends ResponseType = 'json'> {
   request: ClientResponseMethod<RequestOptions, DefaultResponseType>
 
   get: ClientResponseMethod<BodylessClientMethodOptions, DefaultResponseType>
@@ -252,7 +253,7 @@ export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
     defaults: Omit<ClientDefaults, 'responseType'> & {
       responseType: ChildResponseType
     },
-  ): HttpClient<ChildResponseType> & HttpClient
+  ): HttpClient<ChildResponseType>
 
   extend(
     defaults: Omit<ClientDefaults, 'responseType'> & {
@@ -260,7 +261,7 @@ export interface HttpClient<DefaultResponseType extends ResponseType = 'json'> {
     },
   ): HttpClient<DefaultResponseType>
 
-  extend(defaults: ClientDefaults): HttpClient<ResponseType> & HttpClient
+  extend(defaults: ClientDefaults): HttpClient<ResponseType>
 }
 
 type ResponseResult<T, ResponseMode extends ResponseType> =
@@ -281,7 +282,7 @@ type BodylessClientMethodOptions = RequestOptionsBase & {
 
 type ClientResponseMethod<
   Options,
-  DefaultResponseType extends ResponseType,
+  out DefaultResponseType extends ResponseType,
 > = {
   <T = unknown>(
     input: string | URL,
@@ -312,4 +313,9 @@ type ClientResponseMethod<
     input: string | URL,
     options: Options & { responseType: 'raw' },
   ): Promise<Response>
+
+  <T = unknown>(
+    input: string | URL,
+    options?: Options,
+  ): Promise<ResponseResult<T, ResponseType>>
 }
