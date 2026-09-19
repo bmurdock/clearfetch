@@ -9,6 +9,83 @@ import {
 import { request } from '../src/request.js'
 import { withMockedFetch } from './helpers/mock-fetch.js'
 
+for (const cancellation of ['timeout', 'external abort'] as const) {
+  test(`${cancellation} settles a pending afterResponse hook and stops later hooks`, async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller stopped the hook')
+    let releaseHook!: () => void
+    const hookGate = new Promise<void>((resolve) => { releaseHook = resolve })
+    let hookStarted!: () => void
+    const started = new Promise<void>((resolve) => { hookStarted = resolve })
+    const observedErrors: unknown[] = []
+    let laterHookRan = false
+    let deadline: ReturnType<typeof setTimeout> | undefined
+
+    await withMockedFetch(async () => new Response('ok'), async () => {
+      const result = request('https://api.example.com/hook', {
+        responseType: 'text',
+        signal: controller.signal,
+        ...(cancellation === 'timeout' ? { timeout: 10 } : {}),
+        hooks: {
+          afterResponse: [
+            () => { hookStarted(); return hookGate },
+            () => { laterHookRan = true },
+          ],
+          onError: [(context) => { observedErrors.push(context.error) }],
+        },
+      }).then(() => undefined, (error: unknown) => error)
+
+      try {
+        await started
+        if (cancellation === 'external abort') {
+          controller.abort(reason)
+        }
+        const error = await Promise.race([
+          result,
+          new Promise<never>((_resolve, reject) => {
+            deadline = setTimeout(() => reject(new Error('request waited for the pending hook')), 250)
+          }),
+        ])
+        if (cancellation === 'timeout') {
+          assert.ok(error instanceof TimeoutError)
+        } else {
+          assert.ok(error instanceof AbortRequestError)
+          assert.equal(error.cause, reason)
+        }
+        assert.deepEqual(observedErrors, [error])
+      } finally {
+        clearTimeout(deadline)
+        // Finishing the canceled hook must not start the next hook.
+        releaseHook()
+        await result
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      assert.equal(laterHookRan, false)
+      assert.equal(observedErrors.length, 1)
+    })
+  })
+}
+
+test('a synchronously aborting response hook does not leak its rejected promise', async () => {
+  const controller = new AbortController()
+  const reason = new Error('stop during hook invocation')
+  await withMockedFetch(async () => new Response('ok'), async () => {
+    await assert.rejects(
+      request('https://api.example.com/hook', {
+        signal: controller.signal,
+        hooks: {
+          afterResponse: [() => {
+            controller.abort(reason)
+            return Promise.reject(new Error('hook failure after abort'))
+          }],
+        },
+      }),
+      (error) => error instanceof AbortRequestError && error.cause === reason,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+})
+
 test('request timeout surfaces TimeoutError', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input) =>
@@ -217,7 +294,7 @@ test('external aborts during afterResponse hooks stay AbortRequestError', async 
   }
 })
 
-test('timeout classification overrides clearfetch errors thrown by afterResponse hooks', async () => {
+test('timeout settles before a later clearfetch error thrown by an afterResponse hook', async () => {
   const originalFetch = globalThis.fetch
   const hookError = new ConfigError('late hook failure')
 
@@ -241,7 +318,8 @@ test('timeout classification overrides clearfetch errors thrown by afterResponse
       (error) =>
         error instanceof TimeoutError &&
         error.timeout === 5 &&
-        error.cause === hookError,
+        error.cause instanceof DOMException &&
+        error.cause.name === 'AbortError',
     )
   } finally {
     globalThis.fetch = originalFetch

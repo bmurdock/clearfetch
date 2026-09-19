@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import {
   createServer,
   type IncomingMessage,
@@ -6,12 +7,65 @@ import {
 } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import {
   AbortRequestError,
   TimeoutError,
   createClient,
 } from '../src/index.js'
+
+test('raw response cancellation survives GC without retaining abandoned bodies', async () => {
+  await promisify(execFile)(process.execPath, [
+    fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url)),
+    '--expose-gc',
+    fileURLToPath(new URL('./helpers/raw-response-gc.ts', import.meta.url)),
+  ], { timeout: 10_000 })
+})
+
+for (const timeout of [undefined, 1_000]) {
+  test(`raw response body remains abortable after return (timeout: ${timeout})`, {
+    timeout: 5_000,
+  }, async (t) => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'text/plain' })
+      response.write('first chunk')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    t.after(() => new Promise<void>((resolve, reject) => {
+      server.close((error) => error === undefined ? resolve() : reject(error))
+      server.closeAllConnections()
+    }))
+    const address = server.address() as AddressInfo
+    const controller = new AbortController()
+    const client = createClient({ baseURL: `http://127.0.0.1:${address.port}` })
+    const response = await client.get('/', {
+      responseType: 'raw',
+      signal: controller.signal,
+      ...(timeout === undefined ? {} : { timeout }),
+    })
+    const reader = response.body!.getReader()
+    assert.equal((await reader.read()).done, false)
+    let deadline: ReturnType<typeof setTimeout> | undefined
+    try {
+      const nextChunk = reader.read()
+      controller.abort()
+      await assert.rejects(
+        Promise.race([
+          nextChunk,
+          new Promise<never>((_resolve, reject) => {
+            deadline = setTimeout(() => reject(new Error('raw body ignored caller abort')), 250)
+          }),
+        ]),
+        (error) => error instanceof Error && error.name === 'AbortError',
+      )
+    } finally {
+      clearTimeout(deadline)
+      await reader.cancel().catch(() => undefined)
+    }
+  })
+}
 
 test('public client works through native Node fetch and local HTTP', {
   timeout: 10_000,

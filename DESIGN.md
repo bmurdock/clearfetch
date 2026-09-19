@@ -574,6 +574,13 @@ As a result, JSON responses are typed as `T | undefined` rather than `T` alone.
 
 When `responseType` is `raw`, the original `Response` object is returned.
 
+The attempt timer ends at this handoff, but caller cancellation remains connected
+while the returned body is reachable, including through a reader. The body owns
+the retained request and abort controller through a weak-key association; the caller's signal
+holds only a weak forwarder. That listener is removed on abort or reclaimed after
+the body and controller become unreachable. Reading the returned body uses native
+error semantics and does not re-enter the completed request's `onError` hooks.
+
 This is important for advanced consumers and serves as an escape hatch when the convenience layer should get out of the way.
 
 ### Non-success responses
@@ -689,6 +696,8 @@ A timeout means:
 - timeout expiration produces a `TimeoutError`
 - after the timer starts, timeout classification remains authoritative through `afterResponse` hooks and response parsing
 - asynchronous custom JSON parsing is raced against the active attempt signal so a pending parser cannot outlive timeout or external-abort classification
+- each asynchronous `afterResponse` hook is also raced against the active attempt signal; cancellation settles the request and prevents later hooks from running, even if the pending hook never settles
+- racing a consumer callback does not stop its underlying work; late callback rejections are observed without replacing the cancellation error
 
 ### External abort model
 

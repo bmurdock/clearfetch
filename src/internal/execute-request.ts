@@ -201,7 +201,7 @@ export async function executeRequest<T = unknown>(
           }
         }
 
-        return await parseWithHandling<T>({
+        const result = await parseWithHandling<T>({
           attempt,
           context,
           input,
@@ -209,6 +209,10 @@ export async function executeRequest<T = unknown>(
           response,
           timeout,
         })
+        if (context.normalizedOptions.responseType === 'raw') {
+          timeout.retainExternalAbort(response.body, request)
+        }
+        return result
       } catch (error) {
         if (error instanceof RetrySignal) {
           lastError = error.error
@@ -290,12 +294,15 @@ async function runAfterResponseHooks(
   hooks: AfterResponseHook[],
 ): Promise<void> {
   for (const hook of hooks) {
+    if (context.request.signal.aborted) {
+      throw context.request.signal.reason
+    }
     const hookResponse = context.response.clone()
     try {
-      await hook({
+      await waitForResultOrAbort(Promise.resolve(hook({
         ...context,
         response: hookResponse,
-      })
+      })), context.request.signal)
     } finally {
       // Cancellation is initiated immediately but cannot be awaited here:
       // cloned response bodies share a tee with the original body, so the
@@ -606,6 +613,9 @@ function waitForResultOrAbort<T>(
   signal: AbortSignal,
 ): Promise<T> {
   if (signal.aborted) {
+    // The operation can abort synchronously before returning its promise.
+    // Observe a later rejection even when cancellation has already won.
+    void promise.catch(() => undefined)
     return Promise.reject(
       signal.reason ?? new DOMException('Request was aborted', 'AbortError'),
     )
