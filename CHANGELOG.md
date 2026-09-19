@@ -7,6 +7,9 @@ their npm publications and Git tags remain the historical release evidence.
 
 ## Unreleased
 
+- classify cancellation with a clearfetch error as its reason as
+  `AbortRequestError`, preserving that reason as the cause
+
 ## 1.0.9
 
 - route option-materialization failures from method helpers through configured
