@@ -9,6 +9,114 @@ import {
 import { request } from '../src/request.js'
 import { withMockedFetch } from './helpers/mock-fetch.js'
 
+for (const reason of [new Error('already cancelled'), null, new ConfigError('cancelled')]) {
+  test(`pre-aborted requests skip beforeRequest hooks (${String(reason)})`, async () => {
+    const controller = new AbortController()
+    controller.abort(reason)
+    const observedErrors: unknown[] = []
+    let hookCalls = 0
+    let fetchCalls = 0
+
+    await withMockedFetch(async () => {
+      fetchCalls += 1
+      return new Response('ok')
+    }, async () => {
+      await assert.rejects(request('https://api.example.com/hook', {
+        signal: controller.signal,
+        hooks: {
+          beforeRequest: [() => { hookCalls += 1 }],
+          onError: [(context) => { observedErrors.push(context.error) }],
+        },
+      }), (error) => {
+        assert.ok(error instanceof AbortRequestError)
+        assert.equal(error.cause, reason)
+        assert.deepEqual(observedErrors, [error])
+        return true
+      })
+    })
+    assert.equal(hookCalls, 0)
+    assert.equal(fetchCalls, 0)
+  })
+}
+
+for (const lateResult of ['resolve', 'reject'] as const) {
+  test(`external abort settles a pending beforeRequest hook before its late ${lateResult}`, async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller cancelled before fetch')
+    let finishHook!: () => void
+    const hookGate = new Promise<void>((resolve, reject) => {
+      finishHook = () => lateResult === 'resolve'
+        ? resolve()
+        : reject(new Error('late hook failure'))
+    })
+    let hookStarted!: () => void
+    const started = new Promise<void>((resolve) => { hookStarted = resolve })
+    const observedErrors: unknown[] = []
+    let laterHookCalls = 0
+    let fetchCalls = 0
+    let deadline: ReturnType<typeof setTimeout> | undefined
+
+    await withMockedFetch(async () => {
+      fetchCalls += 1
+      return new Response('ok')
+    }, async () => {
+      const result = request('https://api.example.com/hook', {
+        signal: controller.signal,
+        hooks: {
+          beforeRequest: [
+            () => { hookStarted(); return hookGate },
+            () => { laterHookCalls += 1 },
+          ],
+          onError: [(context) => { observedErrors.push(context.error) }],
+        },
+      }).then(() => undefined, (error: unknown) => error)
+      try {
+        await started
+        controller.abort(reason)
+        const error = await Promise.race([
+          result,
+          new Promise<never>((_resolve, reject) => {
+            deadline = setTimeout(() => reject(new Error('request waited for beforeRequest')), 250)
+          }),
+        ])
+        assert.ok(error instanceof AbortRequestError)
+        assert.equal(error.cause, reason)
+        assert.deepEqual(observedErrors, [error])
+      } finally {
+        clearTimeout(deadline)
+        finishHook()
+        await result
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      assert.equal(laterHookCalls, 0)
+      assert.equal(fetchCalls, 0)
+      assert.equal(observedErrors.length, 1)
+    })
+  })
+}
+
+test('a synchronously aborting beforeRequest hook observes its rejected promise', async () => {
+  const controller = new AbortController()
+  const reason = new Error('stop during beforeRequest')
+  const observedErrors: unknown[] = []
+  await assert.rejects(request('https://api.example.com/hook', {
+    signal: controller.signal,
+    hooks: {
+      beforeRequest: [() => {
+        controller.abort(reason)
+        return Promise.reject(new Error('hook failure after abort'))
+      }],
+      onError: [(context) => { observedErrors.push(context.error) }],
+    },
+  }), (error) => {
+    assert.ok(error instanceof AbortRequestError)
+    assert.equal(error.cause, reason)
+    assert.deepEqual(observedErrors, [error])
+    return true
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+})
+
 for (const cancellation of ['timeout', 'external abort'] as const) {
   test(`${cancellation} settles a pending afterResponse hook and stops later hooks`, async () => {
     const controller = new AbortController()

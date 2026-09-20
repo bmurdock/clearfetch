@@ -105,12 +105,19 @@ export async function executeRequest<T = unknown>(
       try {
         await runBeforeRequestHooks(context)
       } catch (error) {
+        const signal = context.normalizedOptions.signal
+        const propagatedError = signal?.aborted === true
+          ? new AbortRequestError(
+              'Request was aborted',
+              signal.reason !== undefined ? signal.reason : error,
+            )
+          : error
         await runOnErrorHooks({
           input,
-          error,
+          error: propagatedError,
           options: context.hookContext.options,
         }, context.normalizedOptions.hooks.onError)
-        throw error
+        throw propagatedError
       }
 
       const timeout = createTimeoutController(
@@ -284,8 +291,20 @@ function createMethodOptions(
 async function runBeforeRequestHooks(
   context: ExecutionBeforeRequestContext,
 ): Promise<void> {
+  const signal = context.normalizedOptions.signal
   for (const hook of context.normalizedOptions.hooks.beforeRequest) {
-    await hook(context.hookContext)
+    if (signal?.aborted === true) {
+      throw signal.reason
+    }
+    const result = hook(context.hookContext)
+    if (signal === undefined) {
+      await result
+    } else {
+      await waitForResultOrAbort(Promise.resolve(result), signal)
+    }
+  }
+  if (signal?.aborted === true) {
+    throw signal.reason
   }
 }
 

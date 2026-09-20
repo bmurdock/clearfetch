@@ -703,6 +703,12 @@ A timeout means:
 
 If the caller provides an external `AbortSignal`, that signal must be respected.
 
+External cancellation is observed before and during `beforeRequest` hooks. An
+already-aborted signal skips these hooks; an abort during a pending hook settles
+the request with `AbortRequestError` and prevents later hooks and fetch execution.
+Late hook rejections are observed, but cancellation cannot stop consumer work
+already started. The per-attempt timeout still starts after these hooks complete.
+
 If the external signal aborts first, the request must fail with an abort error rather than a timeout error.
 
 Where the runtime exposes an external abort reason, the package should preserve that reason as the `AbortRequestError` cause.

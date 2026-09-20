@@ -7,6 +7,8 @@ their npm publications and Git tags remain the historical release evidence.
 
 ## Unreleased
 
+- honor external cancellation before and during `beforeRequest` hooks without
+  changing the per-attempt timeout start point
 - correct client response-mode types: non-JSON and dynamic clients no longer
   satisfy the JSON-default `HttpClient` type; affected annotations must specify
   their response mode (a TypeScript compatibility change)
