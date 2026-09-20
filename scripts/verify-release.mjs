@@ -95,7 +95,7 @@ export async function waitForAttestationDocument({
         signal: createTimeoutSignal(REQUEST_TIMEOUT_MS),
       })
       if (response.ok) {
-        return response.json()
+        return await response.json()
       }
       if (!TRANSIENT_STATUSES.has(response.status)) {
         throw new TerminalAttestationError(

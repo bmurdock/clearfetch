@@ -116,6 +116,60 @@ test('release attestation verification retries transient propagation gaps', asyn
   assert.equal(harness.fetchCalls(), 2)
 })
 
+test('release attestation verification retries successful responses with failed body reads', async () => {
+  let fetchCalls = 0
+  const delays: number[] = []
+  const document = { attestations: [] }
+
+  const result = await waitForAttestationDocument({
+    attestationURL: 'https://registry.example/attestation',
+    fetchImpl: async () => {
+      fetchCalls += 1
+      if (fetchCalls === 1) {
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError('response body connection reset'))
+          },
+        }))
+      }
+      return new Response(JSON.stringify(document))
+    },
+    retryDelaysMs: [17],
+    sleepImpl: async (delay) => { delays.push(delay) },
+    logError: () => {},
+  })
+
+  assert.deepEqual(result, document)
+  assert.equal(fetchCalls, 2)
+  assert.deepEqual(delays, [17])
+})
+
+test('release attestation body failures stop when the retry budget is exhausted', async () => {
+  let fetchCalls = 0
+  const delays: number[] = []
+
+  await assert.rejects(
+    () => waitForAttestationDocument({
+      attestationURL: 'https://registry.example/attestation',
+      fetchImpl: async () => {
+        fetchCalls += 1
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.error(new DOMException('body read timed out', 'TimeoutError'))
+          },
+        }))
+      },
+      retryDelaysMs: [11, 23],
+      sleepImpl: async (delay) => { delays.push(delay) },
+      logError: () => {},
+    }),
+    /npm attestation did not become available/,
+  )
+
+  assert.equal(fetchCalls, 3)
+  assert.deepEqual(delays, [11, 23])
+})
+
 test('release provenance verification binds artifact, workflow, tag, and commit', () => {
   const inputs = createProvenanceInputs()
 
