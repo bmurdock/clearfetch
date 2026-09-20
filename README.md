@@ -240,6 +240,9 @@ through `onError` before being re-thrown. Retry-backoff aborts are normalized to
 one hook does not consume the response used by another hook, normal parsing, or
 `HttpError` creation.
 
+If request-level hook configuration is invalid, valid client-level `onError`
+hooks still observe the original normalization failure.
+
 Hook scope is intentionally narrow:
 
 - `beforeRequest` may mutate headers and may replace the URL with a final absolute URL

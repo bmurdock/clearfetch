@@ -57,19 +57,10 @@ export async function executeRequest<T = unknown>(
     const methodOptions = createMethodOptions(options, method)
     initialContext = createBeforeRequestContext(input, defaults, methodOptions)
   } catch (error) {
-    let onErrorHooks: OnErrorHook[]
-    try {
-      // Request normalization failed before a context exists, so only recover
-      // valid `onError` hooks and avoid letting invalid hook config mask it.
-      onErrorHooks = getInitialOnErrorHooks(defaults, options)
-    } catch {
-      throw error
-    }
-
     await runOnErrorHooks({
       input,
       error,
-    }, onErrorHooks)
+    }, getInitialOnErrorHooks(defaults, options))
     throw error
   }
 
@@ -344,10 +335,16 @@ function getInitialOnErrorHooks(
   defaults: ClientDefaults,
   options: RequestOptions,
 ): OnErrorHook[] {
-  return [
-    ...normalizeOnErrorHooks(defaults.hooks),
-    ...normalizeOnErrorHooks(options.hooks),
-  ]
+  const hooks: OnErrorHook[] = []
+  for (const source of [defaults, options]) {
+    try {
+      hooks.push(...normalizeOnErrorHooks(source.hooks))
+    } catch {
+      // Recover each list independently so invalid request hooks cannot hide
+      // valid client hooks or replace the original normalization failure.
+    }
+  }
+  return hooks
 }
 
 class RetrySignal {
