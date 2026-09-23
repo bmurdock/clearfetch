@@ -25,7 +25,6 @@ export type {
   HookRequestOptions,
   HookRetryOptions,
   HttpClient,
-  NormalizedRequestOptions,
   OnErrorHook,
   PrimitiveQueryValue,
   QueryInput,

@@ -5,19 +5,35 @@ the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
 Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
 their npm publications and Git tags remain the historical release evidence.
 
-## Unreleased
+## 2.0.0
 
+### Breaking changes
+
+- correct client response-mode types: non-JSON and dynamic clients no longer
+  satisfy the JSON-default `HttpClient` type; use `HttpClient<'text'>`, the
+  corresponding literal mode, or `HttpClient<ResponseType>` for dynamic defaults
+- remove the deprecated `NormalizedRequestOptions` public export; use
+  `RequestOptions`, `ClientDefaults`, or `HookRequestOptions` for consumer code
+
+See [Migrating to 2.0.0](./MIGRATION.md) for examples and behavioral boundaries.
+
+### Fixes and improvements
+
+- retain caller cancellation for raw response bodies after the request returns,
+  including when the caller retains only a reader; the attempt timeout still
+  ends when the response is returned
+- race pending `afterResponse` hooks against timeout and external cancellation,
+  prevent later hooks after cancellation, and observe late hook rejections
 - honor external cancellation before and during `beforeRequest` hooks without
   changing the per-attempt timeout start point
 - preserve valid client `onError` hooks when request options or hook configuration
   are malformed
-- correct client response-mode types: non-JSON and dynamic clients no longer
-  satisfy the JSON-default `HttpClient` type; affected annotations must specify
-  their response mode (a TypeScript compatibility change)
 - accept forwarded `RequestOptions` and dynamic response modes through public
   overloads with appropriately broad result types
 - classify cancellation with a clearfetch error as its reason as
   `AbortRequestError`, preserving that reason as the cause
+- retry transient response-body failures while verifying npm attestation documents
+- clarify raw-body ownership, bounded HTTP diagnostics, and awaited error observers
 
 ## 1.0.9
 

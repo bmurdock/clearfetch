@@ -1,3 +1,5 @@
+// @ts-expect-error internal execution options are not public in v2
+import type { NormalizedRequestOptions } from '../dist/index.js'
 import {
   ConfigError,
   HttpError,

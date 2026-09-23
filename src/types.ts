@@ -211,24 +211,6 @@ export interface Hooks {
 }
 
 /**
- * @deprecated Internal execution metadata. Prefer public request, client, and
- * hook option types for consumer code.
- */
-export interface NormalizedRequestOptions {
-  method: RequestMethod
-  headers: Headers
-  query?: QueryInput
-  body?: BodyInit | null
-  json?: unknown
-  timeout?: number
-  signal?: AbortSignal
-  responseType: ResponseType
-  retry: false | Required<RetryOptions>
-  hooks: Required<Hooks>
-  parseJson: (text: string) => unknown | PromiseLike<unknown>
-}
-
-/**
  * Reusable client API produced by `createClient()`.
  * The default mode is covariant so a dynamic mode cannot be narrowed to JSON.
  */

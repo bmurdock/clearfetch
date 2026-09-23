@@ -115,7 +115,7 @@ Types should improve correctness and developer experience without pretending to 
 
 ### In scope
 
-Version 1 includes the following capabilities:
+The package includes the following capabilities:
 
 - one-off requests
 - reusable client instances
@@ -133,7 +133,7 @@ Version 1 includes the following capabilities:
 
 ### Out of scope
 
-The following are explicitly out of scope for version 1:
+The following are explicitly out of scope:
 
 - support for legacy runtimes without native `fetch`
 - adapter systems
@@ -465,7 +465,7 @@ Supported values:
 - object-record query inputs with string, number, boolean, null, arrays of those values, and `undefined` as “omit the key”
 - native `URLSearchParams`
 
-Unsupported structures, such as deeply nested objects, are intentionally out of scope for v1.
+Unsupported structures, such as deeply nested objects, are intentionally out of scope.
 
 `URLSearchParams` is accepted because it is a native web platform primitive. It preserves duplicate-key ordering for callers that need that behavior without requiring the package to invent custom complex-object serialization rules.
 
@@ -518,7 +518,7 @@ The package should not perform schema validation or content introspection beyond
 
 ### GET and HEAD bodies
 
-Bodies on `GET` and `HEAD` requests are rejected in v1.
+Bodies on `GET` and `HEAD` requests are rejected.
 
 Even though some systems tolerate them, they are unusual and frequently confusing. The package should prefer conservative behavior unless there is a compelling reason otherwise.
 
@@ -696,7 +696,7 @@ A timeout means:
 - timeout expiration produces a `TimeoutError`
 - after the timer starts, timeout classification remains authoritative through `afterResponse` hooks and response parsing
 - asynchronous custom JSON parsing is raced against the active attempt signal so a pending parser cannot outlive timeout or external-abort classification
-- each asynchronous `afterResponse` hook is also raced against the active attempt signal; cancellation settles the request and prevents later hooks from running, even if the pending hook never settles
+- each asynchronous `afterResponse` hook is also raced against the active attempt signal; cancellation exits the hook wait and prevents later hooks from running, even if the pending hook never settles; request rejection follows the awaited `onError` hooks
 - racing a consumer callback does not stop its underlying work; late callback rejections are observed without replacing the cancellation error
 
 ### External abort model
@@ -704,8 +704,9 @@ A timeout means:
 If the caller provides an external `AbortSignal`, that signal must be respected.
 
 External cancellation is observed before and during `beforeRequest` hooks. An
-already-aborted signal skips these hooks; an abort during a pending hook settles
-the request with `AbortRequestError` and prevents later hooks and fetch execution.
+already-aborted signal skips these hooks; an abort during a pending hook exits
+the hook wait with `AbortRequestError` and prevents later hooks and fetch execution. Request rejection follows the
+awaited `onError` hooks.
 Late hook rejections are observed, but cancellation cannot stop consumer work
 already started. The per-attempt timeout still starts after these hooks complete.
 
@@ -782,6 +783,11 @@ Permitted uses:
 - centralized error observation
 
 The package itself must not emit telemetry.
+
+`onError` hooks are awaited sequentially without an abort race. A pending
+observer delays request rejection, including after cancellation. If an observer
+throws, its error replaces the error delivered to the caller. Applications
+should keep observers bounded and handle failures in their own logging code.
 
 ### Hook ordering
 
@@ -865,7 +871,7 @@ and the resulting snapshot supplies both URL serialization and hook metadata.
 
 The package should not automatically retry unsafe methods such as `POST`, `PUT`, `PATCH`, or `DELETE` unless the caller explicitly configures that behavior.
 
-Version 1 must also reject retry-eligible execution for streaming request bodies. A configured retry policy does not make an excluded method retryable, and retries must not assume that all bodies can be replayed safely.
+The package must also reject retry-eligible execution for streaming request bodies. A configured retry policy does not make an excluded method retryable, and retries must not assume that all bodies can be replayed safely.
 
 Form data files must be copied without coercing their contents or metadata. If
 the current runtime cannot safely clone a file value from another realm or
@@ -883,11 +889,11 @@ Retry delays should use bounded exponential backoff.
 
 The strategy should be simple, deterministic, and documented.
 
-The package should avoid introducing jitter in v1 unless there is a clear need and documentation story for it.
+The package should avoid introducing jitter unless there is a clear need and documentation story for it.
 
 ### Timeout semantics with retries
 
-Version 1 uses per-attempt timeout semantics.
+The package uses per-attempt timeout semantics.
 
 This means:
 
@@ -906,13 +912,13 @@ Hooks expose the current attempt through `context.options.attempt` and the effec
 
 ### Retry classification
 
-Version 1 retry decisions are based only on:
+Retry decisions are based only on:
 
 - request method
 - normalized failure type
 - HTTP status code
 
-Response bodies are not inspected for retry classification in v1.
+Response bodies are not inspected for retry classification.
 
 ---
 
@@ -1001,6 +1007,19 @@ const user = await client.get<User>('/users/123')
 This means “treat the parsed response as `User`,” not “the library has validated that the server returned a `User`.”
 
 The documentation should be explicit about this distinction.
+
+### Client response modes
+
+`HttpClient` without a type argument means `HttpClient<'json'>`. A non-JSON
+client must retain its mode, for example `HttpClient<'text'>`; a client with
+dynamic defaults uses `HttpClient<ResponseType>`. `createClient()` and
+`extend()` preserve this distinction. Assigning a non-JSON or dynamic client
+to the JSON-default type is rejected.
+
+Literal response modes infer precise results. Forwarded `RequestOptions` and
+dynamic modes use a broad result type when the mode is not known statically.
+Internal normalized execution options are not exported from the package;
+consumer code uses `RequestOptions`, `ClientDefaults`, or `HookRequestOptions`.
 
 ### Type strictness
 
@@ -1162,6 +1181,11 @@ Good documentation is part of the design, not an afterthought.
 ---
 
 ## Versioning philosophy
+
+The public contract includes exported TypeScript declarations. Incompatible
+changes require a major release, even when they correct unsound declarations.
+Version 2.0.0 corrects client response-mode assignability and removes the
+deprecated `NormalizedRequestOptions` export. See [the migration guide](./MIGRATION.md).
 
 Changes to the following behaviors should be treated with high caution because they are semantically significant:
 

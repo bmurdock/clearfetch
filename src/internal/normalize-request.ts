@@ -1,8 +1,8 @@
+import type { NormalizedRequestOptions } from './normalized-request-options.js'
 import { ConfigError } from '../errors.js'
 import type {
   BeforeRequestContext,
   ClientDefaults,
-  NormalizedRequestOptions,
   QueryInput,
   RequestMethod,
   RequestOptions,

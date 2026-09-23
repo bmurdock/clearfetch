@@ -1,9 +1,10 @@
+// @ts-expect-error internal execution options are not public in v2
+import type { NormalizedRequestOptions } from '../src/index.js'
 import {
   createClient,
   request,
   type ClientDefaults,
   type HttpClient,
-  type NormalizedRequestOptions,
   type RequestOptions,
   type ResponseType,
 } from '../src/index.js'
@@ -17,8 +18,6 @@ type Equal<Left, Right> =
 type Expect<Value extends true> = Value
 
 const client = createClient()
-type PublicNormalizedRequestOptions = NormalizedRequestOptions
-void (undefined as unknown as PublicNormalizedRequestOptions)
 
 const jsonPromise: Promise<{ ok: boolean } | undefined> = request<{ ok: boolean }>(
   'https://api.example.com/users',

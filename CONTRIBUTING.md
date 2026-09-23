@@ -24,7 +24,13 @@ Thanks for the interest in improving `clearfetch`.
 - `npm run check:lockfile`
 - `npm run check:package-metadata`
 - `npm run check:pack-smoke`
-- `npm run check:publish-dry-run` for release-path changes
+- for release-path changes, retain the artifact with `npm run check:pack-smoke -- --retain`,
+  then pass that exact reported tarball path to `npm run check:publish-dry-run -- <tarball>`
+
+The publish dry-run checks an unpublished version or compares the retained
+artifact with an existing publication. Use `npm run check:publish-dry-run -- --allow-existing`
+only for non-publishing validation that intentionally skips that comparison.
+See [the release policy](./RELEASE.md) for the complete release-confidence bundle.
 
 For dependency or lockfile changes, also run:
 

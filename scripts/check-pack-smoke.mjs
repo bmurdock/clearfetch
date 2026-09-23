@@ -128,6 +128,8 @@ try {
       "  throw new Error('redactHeaders did not redact Authorization')",
       '}',
       '',
+      '// @ts-expect-error internal execution options are not public in v2',
+      "import type { NormalizedRequestOptions } from '@gavoryn/clearfetch'",
       "const client: HttpClient = createClient({ baseURL: 'https://api.example.com' })",
       'const jsonPromise: Promise<{ ok: boolean } | undefined> = client.get<{ ok: boolean }>(\'/users\')',
       'void jsonPromise',
