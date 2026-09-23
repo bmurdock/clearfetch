@@ -1,6 +1,6 @@
+import type { NormalizedRequestOptions } from './normalized-request-options.js'
 import type {
   HookRequestOptions,
-  NormalizedRequestOptions,
   PrimitiveQueryValue,
   QueryParams,
 } from '../types.js'

@@ -60,7 +60,7 @@ changing the consumer package:
 - the minimum supported TypeScript compiler is an exact lockfile dependency, not a dynamically downloaded tool
 - dependency advisories, registry signatures, and attestations are checked in CI, on a weekly schedule, and before release
 - GitHub Actions are pinned to full commit SHAs and checkout credentials are not persisted
-- release verification hands one smoke-tested tarball to an OIDC-only publish job and verifies the registry provenance identifies the expected workflow, tag, and commit
+- release verification hands one smoke-tested tarball to an OIDC-authenticated publish job with read-only repository access and verifies the registry provenance identifies the expected workflow, tag, and commit
 - npm publication authority and GitHub Release write authority are held by separate jobs
 
 These controls limit opportunities to execute or replace unreviewed tooling.
@@ -69,3 +69,6 @@ signatures verify registry identity, provenance binds a published artifact to a
 workflow, and audits cover only known advisories. Maintainers must still review
 dependency, lockfile, workflow, and release-policy changes as security-sensitive
 code.
+
+The npm trusted-publisher configuration is an external prerequisite. Maintainers
+must verify it in npm settings as described in [the release policy](./RELEASE.md).

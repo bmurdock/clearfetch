@@ -6,6 +6,10 @@ A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript
 npm install @gavoryn/clearfetch
 ```
 
+This README describes the 2.0.0 source. For changes from 1.x, see the
+[migration guide](./MIGRATION.md). Check [npm](https://www.npmjs.com/package/@gavoryn/clearfetch)
+and [GitHub Releases](https://github.com/bmurdock/clearfetch/releases) for publication status.
+
 ## Why clearfetch?
 
 Use clearfetch when you want a thin layer over native `fetch`, not a separate transport abstraction.
@@ -240,6 +244,9 @@ through `onError` before being re-thrown. Retry-backoff aborts are normalized to
 one hook does not consume the response used by another hook, normal parsing, or
 `HttpError` creation.
 
+If request-level hook configuration is invalid, valid client-level `onError`
+hooks still observe the original normalization failure.
+
 Hook scope is intentionally narrow:
 
 - `beforeRequest` may mutate headers and may replace the URL with a final absolute URL
@@ -247,7 +254,9 @@ Hook scope is intentionally narrow:
 - `context.options` is read-only hook metadata, not a supported mutation surface
 
 Client hooks run before request hooks. Within each client or request hook list,
-hooks run in definition order.
+hooks run in definition order. `onError` hooks are awaited and are not raced
+against cancellation. Keep them bounded: a pending observer delays rejection,
+and an observer that throws replaces the error delivered to the caller.
 
 Cloned `afterResponse` inspection is intended for ordinary API payloads, not
 large streaming or heavy binary workflows.
@@ -318,6 +327,11 @@ The exported error classes cover configuration, network, timeout, cancellation,
 HTTP-status, and response-parsing failures. `isHttpClientError()` can identify
 the library's error types before more specific `instanceof` handling.
 
+Use `HttpError.bodyText` as the diagnostic payload. Capture is limited to
+16,384 characters and a 250 ms read budget; it may be partial or absent.
+Truncated captures include a `...[truncated]` suffix after the captured text. Use `HttpError.response`
+for status and headers, and do not assume its body remains readable.
+
 ### Text and raw responses
 
 ```ts
@@ -346,8 +360,20 @@ const jsonStatus = await textApi.get<{ ok: boolean }>('/status', {
 })
 ```
 
+In raw mode, the per-attempt timeout ends when the `Response` is returned.
+Pass a caller-owned `AbortSignal` if you need to cancel a later body read.
+Body-read failures after return use native errors and do not invoke `onError`.
+Non-2xx responses still throw `HttpError`, including in raw mode.
+
 Client-level `responseType` defaults are reflected in the returned client type.
 A request-level `responseType` still overrides the client default.
+
+For explicit client annotations, use `HttpClient<'text'>`, `HttpClient<'raw'>`,
+or the appropriate response mode. Plain `HttpClient` means JSON;
+`HttpClient<ResponseType>` represents a client whose default mode is dynamic.
+Non-JSON and dynamic clients cannot be assigned to a JSON client type.
+Forwarding a `RequestOptions` value is supported; when its response mode is
+unknown, the returned type includes all possible response results.
 
 ### Runtime validation
 
@@ -386,15 +412,13 @@ const user = User.parse(data)
 ## Behavior notes
 
 - Non-2xx responses throw `HttpError`.
-- `HttpError.bodyText` capture is bounded and may be truncated for very large payloads.
-- `HttpError.bodyText` capture also has a 250ms diagnostic read budget, so stalled error bodies cannot delay HTTP classification indefinitely; partial captures are marked as truncated.
 - `ParseError.bodyText` capture is also bounded and may be truncated for very large invalid JSON payloads.
-- `HttpError.response` remains available for status, headers, and metadata, but its body may already be consumed or canceled by diagnostic `bodyText` capture.
-- JSON mode returns `undefined` for empty response bodies.
 - In JSON mode, successful empty bodies resolve as `T | undefined`.
 - No default timeout is applied. Requests run until completion or external abort unless `timeout` is configured.
 - Timeout and retry-delay values may not exceed `2,147,483,647` milliseconds, the maximum reliable platform timer delay.
 - After the timeout window starts, expiration remains authoritative through `afterResponse` hooks and response parsing.
+- External cancellation also exits pending `beforeRequest` hooks and prevents later hooks and fetch execution. Attempt timeouts still start only after these hooks complete; cancellation cannot stop work already started inside a consumer hook.
+- Pending `afterResponse` hooks are raced against cancellation. Cancellation stops later hooks and proceeds to error observation; it cannot stop work already started inside a consumer hook.
 - Invalid request configuration, including invalid hook lists, fails fast with `ConfigError`. `createClient()` and `extend()` also validate supplied client defaults during construction.
 - Invalid request abort signals fail with `ConfigError`; native signals from another browser realm remain supported.
 - Hook, request-normalization, retry rebuild, and request-construction failures are not wrapped as `NetworkError`.
@@ -421,7 +445,6 @@ const user = User.parse(data)
 - Retry attempts reuse a snapshot of the initially normalized URL, headers, retry policy, and request body. JSON bodies are serialized once before the first attempt.
 - Client defaults are snapshotted at client creation, including mutable `URL` values created in another browser realm.
 - Retryable `FormData` file values that the current runtime cannot clone safely are rejected instead of being coerced into different payloads.
-- Retried `FormData` preserves semantic values but does not guarantee byte-identical multipart boundaries across attempts.
 - Timeout windows start after `beforeRequest` hooks complete.
 - Retry backoff waits do not consume per-attempt timeout windows.
 - If `beforeRequest` replaces `context.url`, that replacement is final. Previously resolved `baseURL` and query parameters are not reapplied to the replacement URL.
@@ -460,25 +483,16 @@ Node.js releases do not receive upstream security fixes.
 
 ## Release and CI
 
-- CI lints GitHub Actions workflows before merge.
-- CI runs lint, unit tests, native Node HTTP integration, and build checks across the declared Node.js compatibility matrix, including Node.js `26`.
-- CI also runs a lightweight browser-like test path using `happy-dom` on Node.js `24`.
-- CI runs a focused real-Chromium test for native values created in another browser realm.
-- CI verifies the published declaration surface with the TypeScript `5.0`
-  minimum, the TypeScript `6.0` transition compiler, and the current TypeScript
-  `7.x` compiler. Future TypeScript major versions are supported after explicit
-  validation.
-- Dependency review is enforced for pull requests and supports manual base/head validation.
-- CI rejects non-registry lockfile sources, missing SHA-512 integrity, and unreviewed install scripts before dependency installation.
-- Automated installs disable dependency lifecycle scripts, and a weekly read-only audit checks advisories, registry signatures, and attestations.
-- The release workflow supports a non-publishing dry-run path via manual dispatch.
-- npm publishing now uses npm trusted publishing from GitHub Actions instead of a long-lived publish token.
-- The release workflow publishes the exact smoke-tested tarball with provenance
-  using OIDC-based npm authentication. The publish job has read-only repository
-  access, and a separate job with repository-write access creates or verifies
-  the matching GitHub Release record.
-- Normal releases are expected to publish from GitHub Actions, not from local machines.
-- Release and repository protection policy is documented in [RELEASE.md](./RELEASE.md).
+CI checks the declared Node.js matrix, native HTTP integration, browser-like
+and real-Chromium behavior, and TypeScript 5.0, 6.0, and 7.x declarations. It
+also checks workflows, dependency origins, signatures, advisories, and package
+contents. Future TypeScript major versions require explicit validation.
+
+Releases publish the exact smoke-tested tarball through GitHub Actions trusted
+publishing, verify npm integrity and provenance, and create the GitHub Release
+in a separate job. Manual workflow dispatch provides non-publishing validation.
+See [the release policy](./RELEASE.md) for prerequisites, controls, commands,
+and recovery procedures. Local verification does not establish publication.
 
 ## Package surface
 
@@ -486,7 +500,7 @@ The public package surface is intentionally narrow:
 
 - the root export provides the supported runtime API and public types
 - internal implementation modules are not part of the supported import contract
-- the deprecated `NormalizedRequestOptions` type remains exported only for compatibility and is planned for removal in the next major version
+- `NormalizedRequestOptions` is no longer exported in 2.0.0; use `RequestOptions`, `ClientDefaults`, or `HookRequestOptions` for the corresponding public boundary
 - the package includes no lifecycle scripts and is intended to publish only built `dist/` artifacts
 - JavaScript source maps remain available for mapped stack traces; declaration maps are omitted because TypeScript source files are not shipped
 - packed and unpacked artifact sizes and file counts are guarded by deliberate budgets

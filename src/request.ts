@@ -35,6 +35,11 @@ export function request(
 export function request<T = unknown>(
   input: string | URL,
   options?: RequestOptions,
+): Promise<T | Response | string | Blob | ArrayBuffer | undefined>
+
+export function request<T = unknown>(
+  input: string | URL,
+  options?: RequestOptions,
 ): Promise<T | Response | string | Blob | ArrayBuffer | undefined> {
   return executeRequest<T>(input, {}, options)
 }

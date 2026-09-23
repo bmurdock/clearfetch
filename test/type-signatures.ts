@@ -1,9 +1,11 @@
+// @ts-expect-error internal execution options are not public in v2
+import type { NormalizedRequestOptions } from '../src/index.js'
 import {
   createClient,
   request,
   type ClientDefaults,
   type HttpClient,
-  type NormalizedRequestOptions,
+  type RequestOptions,
   type ResponseType,
 } from '../src/index.js'
 
@@ -16,8 +18,6 @@ type Equal<Left, Right> =
 type Expect<Value extends true> = Value
 
 const client = createClient()
-type PublicNormalizedRequestOptions = NormalizedRequestOptions
-void (undefined as unknown as PublicNormalizedRequestOptions)
 
 const jsonPromise: Promise<{ ok: boolean } | undefined> = request<{ ok: boolean }>(
   'https://api.example.com/users',
@@ -58,6 +58,7 @@ const clientJsonPromise: Promise<{ ok: boolean } | undefined> = client.get<{
 void clientJsonPromise
 
 const textDefaultClient = createClient({ responseType: 'text' })
+// @ts-expect-error a text client cannot promise JSON results
 const legacyTextDefaultClient: HttpClient = textDefaultClient
 const defaultTextPromise: Promise<string> = textDefaultClient.get(
   'https://api.example.com/text',
@@ -66,6 +67,11 @@ void legacyTextDefaultClient
 void defaultTextPromise
 
 const rawDefaultClient = createClient({ responseType: 'raw' })
+// @ts-expect-error a raw client cannot promise JSON results
+const invalidRawDefaultClient: HttpClient = rawDefaultClient
+const typedRawDefaultClient: HttpClient<'raw'> = rawDefaultClient
+void invalidRawDefaultClient
+void typedRawDefaultClient
 const defaultRawPromise: Promise<Response> = rawDefaultClient.get<{
   ignoredAtRuntime: boolean
 }>(
@@ -93,6 +99,7 @@ const inheritedTextPromise: Promise<string> = inheritedTextDefault.get(
 void inheritedTextPromise
 
 const extendedRawDefault = textDefaultClient.extend({ responseType: 'raw' })
+// @ts-expect-error extending a client must preserve its non-JSON mode
 const legacyRawExtendedClient: HttpClient = extendedRawDefault
 const extendedRawPromise: Promise<Response> = extendedRawDefault.get(
   'https://api.example.com/raw',
@@ -103,14 +110,20 @@ void extendedRawPromise
 const dynamicDefaults: ClientDefaults = { responseType: 'text' }
 const dynamicDefaultClient = createClient(dynamicDefaults)
 type DynamicDefaultClient = Expect<
-  Equal<typeof dynamicDefaultClient, HttpClient<ResponseType> & HttpClient>
+  Equal<typeof dynamicDefaultClient, HttpClient<ResponseType>>
 >
+// @ts-expect-error a dynamic default may resolve to a non-JSON result
+const invalidDynamicClient: HttpClient = dynamicDefaultClient
+void invalidDynamicClient
+// @ts-expect-error extracted methods must also preserve a dynamic response mode
+const invalidDynamicGet: HttpClient['get'] = dynamicDefaultClient.get
+void invalidDynamicGet
 void (undefined as unknown as DynamicDefaultClient)
 
 const dynamicExtendedDefaults: ClientDefaults = { responseType: 'raw' }
 const dynamicExtendedClient = textDefaultClient.extend(dynamicExtendedDefaults)
 type DynamicExtendedClient = Expect<
-  Equal<typeof dynamicExtendedClient, HttpClient<ResponseType> & HttpClient>
+  Equal<typeof dynamicExtendedClient, HttpClient<ResponseType>>
 >
 void (undefined as unknown as DynamicExtendedClient)
 
@@ -143,10 +156,10 @@ client.get('https://api.example.com/users', {
   query: new URLSearchParams('tag=a&tag=b'),
 })
 
-// @ts-expect-error body and json are mutually exclusive
 request('https://api.example.com/create', {
   method: 'POST',
   body: 'raw',
+  // @ts-expect-error body and json are mutually exclusive
   json: { ok: true },
 })
 
@@ -155,9 +168,9 @@ request('https://api.example.com/create', {
   json: { ok: true },
 })
 
-// @ts-expect-error GET requests cannot include JSON request bodies
 request('https://api.example.com/users', {
   method: 'GET',
+  // @ts-expect-error GET requests cannot include JSON request bodies
   json: { invalid: true },
 })
 
@@ -206,3 +219,18 @@ void typedOptionsJsonPromise
 // @ts-expect-error raw mode resolves to Promise<Response>
 const invalidRawPromise: Promise<{ statusCode: number } | undefined> = rawPromise
 void invalidRawPromise
+
+function forwardOptions(options: RequestOptions, responseType: ResponseType) {
+  type Result = Promise<{ ok: boolean } | Response | string | Blob | ArrayBuffer | undefined>
+  const direct: Result = request<{ ok: boolean }>('https://api.example.com', options)
+  const shared: Result = client.request<{ ok: boolean }>('https://api.example.com', options)
+  const dynamic = client.get<{ ok: boolean }>('https://api.example.com', { responseType })
+  const dynamicDirect: Result = request<{ ok: boolean }>('https://api.example.com', { responseType })
+  // @ts-expect-error a dynamic response mode cannot promise JSON
+  const invalid: Promise<{ ok: boolean } | undefined> = dynamic
+  void direct
+  void shared
+  void dynamicDirect
+  void invalid
+}
+void forwardOptions

@@ -57,19 +57,10 @@ export async function executeRequest<T = unknown>(
     const methodOptions = createMethodOptions(options, method)
     initialContext = createBeforeRequestContext(input, defaults, methodOptions)
   } catch (error) {
-    let onErrorHooks: OnErrorHook[]
-    try {
-      // Request normalization failed before a context exists, so only recover
-      // valid `onError` hooks and avoid letting invalid hook config mask it.
-      onErrorHooks = getInitialOnErrorHooks(defaults, options)
-    } catch {
-      throw error
-    }
-
     await runOnErrorHooks({
       input,
       error,
-    }, onErrorHooks)
+    }, getInitialOnErrorHooks(defaults, options))
     throw error
   }
 
@@ -105,12 +96,19 @@ export async function executeRequest<T = unknown>(
       try {
         await runBeforeRequestHooks(context)
       } catch (error) {
+        const signal = context.normalizedOptions.signal
+        const propagatedError = signal?.aborted === true
+          ? new AbortRequestError(
+              'Request was aborted',
+              signal.reason !== undefined ? signal.reason : error,
+            )
+          : error
         await runOnErrorHooks({
           input,
-          error,
+          error: propagatedError,
           options: context.hookContext.options,
         }, context.normalizedOptions.hooks.onError)
-        throw error
+        throw propagatedError
       }
 
       const timeout = createTimeoutController(
@@ -201,7 +199,7 @@ export async function executeRequest<T = unknown>(
           }
         }
 
-        return await parseWithHandling<T>({
+        const result = await parseWithHandling<T>({
           attempt,
           context,
           input,
@@ -209,6 +207,10 @@ export async function executeRequest<T = unknown>(
           response,
           timeout,
         })
+        if (context.normalizedOptions.responseType === 'raw') {
+          timeout.retainExternalAbort(response.body, request)
+        }
+        return result
       } catch (error) {
         if (error instanceof RetrySignal) {
           lastError = error.error
@@ -280,8 +282,20 @@ function createMethodOptions(
 async function runBeforeRequestHooks(
   context: ExecutionBeforeRequestContext,
 ): Promise<void> {
+  const signal = context.normalizedOptions.signal
   for (const hook of context.normalizedOptions.hooks.beforeRequest) {
-    await hook(context.hookContext)
+    if (signal?.aborted === true) {
+      throw signal.reason
+    }
+    const result = hook(context.hookContext)
+    if (signal === undefined) {
+      await result
+    } else {
+      await waitForResultOrAbort(Promise.resolve(result), signal)
+    }
+  }
+  if (signal?.aborted === true) {
+    throw signal.reason
   }
 }
 
@@ -290,12 +304,15 @@ async function runAfterResponseHooks(
   hooks: AfterResponseHook[],
 ): Promise<void> {
   for (const hook of hooks) {
+    if (context.request.signal.aborted) {
+      throw context.request.signal.reason
+    }
     const hookResponse = context.response.clone()
     try {
-      await hook({
+      await waitForResultOrAbort(Promise.resolve(hook({
         ...context,
         response: hookResponse,
-      })
+      })), context.request.signal)
     } finally {
       // Cancellation is initiated immediately but cannot be awaited here:
       // cloned response bodies share a tee with the original body, so the
@@ -318,10 +335,16 @@ function getInitialOnErrorHooks(
   defaults: ClientDefaults,
   options: RequestOptions,
 ): OnErrorHook[] {
-  return [
-    ...normalizeOnErrorHooks(defaults.hooks),
-    ...normalizeOnErrorHooks(options.hooks),
-  ]
+  const hooks: OnErrorHook[] = []
+  for (const source of [defaults, options]) {
+    try {
+      hooks.push(...normalizeOnErrorHooks(source.hooks))
+    } catch {
+      // Recover each list independently so invalid request hooks cannot hide
+      // valid client hooks or replace the original normalization failure.
+    }
+  }
+  return hooks
 }
 
 class RetrySignal {
@@ -606,6 +629,9 @@ function waitForResultOrAbort<T>(
   signal: AbortSignal,
 ): Promise<T> {
   if (signal.aborted) {
+    // The operation can abort synchronously before returning its promise.
+    // Observe a later rejection even when cancellation has already won.
+    void promise.catch(() => undefined)
     return Promise.reject(
       signal.reason ?? new DOMException('Request was aborted', 'AbortError'),
     )

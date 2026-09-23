@@ -75,6 +75,25 @@ test('createTimeoutController cleanup clears the pending timeout', async () => {
   assert.equal(timeout.didTimeout(), false)
 })
 
+test('raw handoff retains external abort after clearing the attempt timer', async () => {
+  const controller = new AbortController()
+  const timeout = createTimeoutController(controller.signal, 5)
+  const reason = new Error('stop the raw response')
+
+  timeout.retainExternalAbort(new ReadableStream(), new Request('https://example.com', {
+    signal: timeout.signal,
+  }))
+  timeout.cleanup()
+  await sleep(20)
+  assert.equal(timeout.signal.aborted, false)
+  assert.equal(timeout.didTimeout(), false)
+
+  controller.abort(reason)
+  assert.equal(timeout.signal.aborted, true)
+  assert.equal(timeout.signal.reason, reason)
+  assert.equal(timeout.didTimeout(), false)
+})
+
 test('createTimeoutController marks timeout aborts', async () => {
   const timeout = createTimeoutController(undefined, 1)
 

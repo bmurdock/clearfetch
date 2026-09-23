@@ -6,7 +6,7 @@ response-hook isolation, and retryable-body snapshots. Retryable-body scenarios
 include a string control alongside copied `ArrayBuffer` and reconstructed
 `FormData` inputs.
 
-Run the full local benchmark after building the current source:
+Run the full local benchmark (the command builds the current source first):
 
 ```bash
 npm run benchmark

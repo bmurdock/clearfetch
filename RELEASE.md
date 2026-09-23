@@ -31,13 +31,29 @@ GitHub Release record.
 Before publishing, the workflow also verifies that the release tag is annotated
 and that its commit is reachable from `origin/main`.
 
-Post-release verification:
+Post-release verification (replace `X.Y.Z` with the release version):
 
 ```bash
-npm view @gavoryn/clearfetch version --registry=https://registry.npmjs.org
-npm view @gavoryn/clearfetch dist.integrity --registry=https://registry.npmjs.org
-gh release list --limit 5 --json tagName,name,isDraft,isPrerelease,isLatest,createdAt,publishedAt
+npm view @gavoryn/clearfetch@X.Y.Z version dist.integrity --json --registry=https://registry.npmjs.org
+gh release view vX.Y.Z --json tagName,name,isDraft,isPrerelease,url
 ```
+
+Compare registry integrity with the exact verified tarball and confirm the
+Release workflow verified provenance for the expected workflow, tag, and commit.
+Checking `latest` alone does not establish the identity of a particular release.
+
+## Recovery
+
+If validation fails before publication, fix the release candidate and repeat the
+affected checks before tagging. Do not publish from a local machine to bypass
+a failed workflow.
+
+If npm publication succeeds but verification or GitHub Release creation fails,
+inspect the failing job and exact-version registry state first. Rerun the failed
+workflow jobs for the same tag and commit; the workflow checks artifact integrity
+before accepting an existing publication. Stop on an integrity or provenance
+mismatch. Never move the tag or replace a published version. A source correction
+after publication requires a new version.
 
 ## Release dry-run
 
@@ -51,7 +67,7 @@ That dry-run path should verify:
 - dependency advisory, registry-signature, and attestation checks
 - package metadata with `npm run check:package-metadata`
 - packed artifact behavior with `npm run check:pack-smoke -- --retain`
-- exact-artifact publishability with `npm run check:publish-dry-run -- release-artifact/*.tgz`, which uses the public npm registry explicitly, dry-runs unpublished versions, and compares byte integrity for an existing version
+- exact-artifact publishability with `npm run check:publish-dry-run -- release-artifact/gavoryn-clearfetch-X.Y.Z.tgz`, with `X.Y.Z` replaced by the candidate version, which uses the public npm registry explicitly, dry-runs unpublished versions, and compares byte integrity for an existing version
 - upload of the verified tarball as a short-lived immutable workflow artifact
 
 Manual dispatch never runs either privileged job. Tag-triggered publication
@@ -62,6 +78,9 @@ and commit.
 
 Use the dry-run path before relying on a first release or after making workflow
 changes that affect packaging or publishing.
+
+Before the first local real-browser test, install Chromium with
+`node node_modules/playwright/cli.js install chromium` after installing dependencies.
 
 Before committing release preparation, run the local confidence bundle:
 
@@ -80,9 +99,13 @@ npm run check:dependency-audit
 npm run check:dependency-signatures
 npm run check:package-metadata
 npm run check:pack-smoke -- --retain
-npm run check:publish-dry-run -- release-artifact/*.tgz
+release_version=$(node -p "require('./package.json').version")
+npm run check:publish-dry-run -- "release-artifact/gavoryn-clearfetch-${release_version}.tgz"
 git diff --check
 ```
+
+Use the exact candidate filename when retained artifacts from older versions
+exist. A wildcard can select the wrong tarball; the identity check then fails.
 
 ## Repository protections
 
@@ -144,13 +167,16 @@ The release workflow assumes:
 
 The release workflow separates authority across three jobs:
 
-- `verify-release` has read-only repository access, disables dependency lifecycle scripts and caching, runs all package and dependency checks, and uploads the exact smoke-tested tarball
+- `verify-release` has read-only repository access, disables dependency lifecycle scripts and caching, runs lint, unit tests, Node HTTP integration, browser-like tests, benchmark smoke, declaration compatibility, build, package, and dependency checks, and uploads the exact smoke-tested tarball
 - `publish` has read-only repository access to the checked-in release-verification
   script, installs no repository development dependencies, and receives
   `contents: read` plus `id-token: write`; it downloads, re-verifies, and
   publishes the exact tarball, then verifies npm signatures and the expected
   provenance identity
 - `github-release` receives only `contents: write` and creates or verifies the GitHub Release after npm publication succeeds
+
+Real-Chromium coverage runs in `CI` and is a prerequisite for release; it is
+not repeated by the tag-triggered verification job.
 
 No job holds both npm publication authority and repository-write authority.
 When trusted publishing is configured, npm binds provenance to the public

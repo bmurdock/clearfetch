@@ -13,7 +13,7 @@ export function normalizeExecutionError(params: {
 }): HttpClientError {
   const { aborted, abortReason, error, timeout } = params
 
-  if (error instanceof HttpClientError) {
+  if (aborted !== true && error instanceof HttpClientError) {
     return error
   }
 

@@ -259,6 +259,34 @@ test('invalid onError hooks do not mask request normalization failures', async (
   )
 })
 
+for (const method of ['request', 'get'] as const) {
+  for (const [label, options, expectedMessage] of [
+    ['null options', null, '`options` must be an object'],
+    ['null hooks', { hooks: null }, '`hooks` must be an object'],
+    ['invalid onError', { hooks: { onError: [null] } }, '`hooks.onError` must be an array of functions'],
+  ] as const) {
+    test(`client ${method} observes ${label} through valid default onError hooks`, async () => {
+      const observedErrors: unknown[] = []
+      const client = createClient({
+        hooks: {
+          onError: [(context) => { observedErrors.push(context.error) }],
+        },
+      })
+      await assert.rejects(
+        method === 'request'
+          ? client.request('https://api.example.com/users', options as never)
+          : client.get('https://api.example.com/users', options as never),
+        (error) => {
+          assert.ok(error instanceof ConfigError)
+          assert.equal(error.message, expectedMessage)
+          assert.deepEqual(observedErrors, [error])
+          return true
+        },
+      )
+    })
+  }
+}
+
 test('method helpers report option materialization failures through onError', async () => {
   const failure = new Error('query getter failed')
   const observedErrors: unknown[] = []

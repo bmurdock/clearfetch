@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createHookRequestOptions } from '../src/internal/hook-options.js'
-import type { NormalizedRequestOptions } from '../src/types.js'
+import type { NormalizedRequestOptions } from '../src/internal/normalized-request-options.js'
 
 const DEFAULT_METADATA = {
   attempt: 1,
