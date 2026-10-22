@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -25,7 +26,6 @@ const packResult = selectPackResult(JSON.parse(stdout))
 const tarballPath = path.join(rootDir, packResult.filename)
 const packageName = '@gavoryn/clearfetch'
 let tempDir
-let tarballRetained = false
 
 try {
   assertPackedFiles(packResult.files)
@@ -253,19 +253,15 @@ try {
   if (retainTarball) {
     const artifactDir = path.join(rootDir, 'release-artifact')
     const artifactPath = path.join(artifactDir, packResult.filename)
-    await rm(artifactDir, { recursive: true, force: true })
-    await mkdir(artifactDir)
-    await rename(tarballPath, artifactPath)
-    tarballRetained = true
+    await mkdir(artifactDir, { recursive: true })
+    await copyFile(tarballPath, artifactPath, constants.COPYFILE_EXCL)
     console.log(`retained verified tarball at ${artifactPath}`)
   }
 } finally {
   if (tempDir !== undefined) {
     await rm(tempDir, { recursive: true, force: true })
   }
-  if (!tarballRetained) {
-    await rm(tarballPath, { force: true })
-  }
+  await rm(tarballPath, { force: true })
 }
 
 console.log('packed artifact smoke checks passed')

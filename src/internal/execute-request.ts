@@ -478,16 +478,18 @@ async function fetchWithHandling(params: {
   try {
     return await fetchImpl(request)
   } catch (error) {
+    // Native fetch may replace primitive abort reasons with a TypeError
+    // (notably on Node 18). The composed signal establishes cancellation.
     const normalized = normalizeExecutionError(
       context.normalizedOptions.timeout !== undefined && timeout.didTimeout()
         ? {
-            aborted: isRequestAbort(request.signal, error),
+            aborted: request.signal.aborted,
             abortReason: request.signal.reason,
             error,
             timeout: context.normalizedOptions.timeout,
           }
         : {
-            aborted: isRequestAbort(request.signal, error),
+            aborted: request.signal.aborted,
             abortReason: request.signal.reason,
             error,
           },

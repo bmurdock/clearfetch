@@ -16,6 +16,40 @@ import {
   createClient,
 } from '../src/index.js'
 
+test('native fetch cancellation preserves primitive reasons before response headers', {
+  timeout: 10_000,
+}, async (t) => {
+  let onRequest: () => void = () => undefined
+  const server = createServer(() => onRequest())
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise<void>((resolve, reject) => {
+    server.close((error) => error === undefined ? resolve() : reject(error))
+    server.closeAllConnections()
+  }))
+  const address = server.address() as AddressInfo
+  const client = createClient({ baseURL: `http://127.0.0.1:${address.port}` })
+
+  for (const reason of ['stop', 42, false, null]) {
+    await t.test(`abort reason: ${String(reason)}`, async () => {
+      const received = new Promise<void>((resolve) => { onRequest = resolve })
+      const controller = new AbortController()
+      const observed: unknown[] = []
+      const pending = client.get('/', {
+        signal: controller.signal,
+        hooks: { onError: [({ error }) => { observed.push(error) }] },
+      })
+      await received
+      controller.abort(reason)
+      await assert.rejects(pending, (error) => {
+        assert.ok(error instanceof AbortRequestError)
+        assert.equal(error.cause, reason)
+        assert.deepEqual(observed, [error])
+        return true
+      })
+    })
+  }
+})
+
 test('raw response cancellation survives GC without retaining abandoned bodies', async () => {
   await promisify(execFile)(process.execPath, [
     fileURLToPath(new URL('../node_modules/tsx/dist/cli.mjs', import.meta.url)),

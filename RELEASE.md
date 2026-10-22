@@ -106,6 +106,9 @@ git diff --check
 
 Use the exact candidate filename when retained artifacts from older versions
 exist. A wildcard can select the wrong tarball; the identity check then fails.
+Retention preserves existing artifacts and fails if the candidate filename
+already exists. Move the existing candidate to an archive location before
+retaining another build of the same version.
 
 ## Repository protections
 
