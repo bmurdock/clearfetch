@@ -5,6 +5,16 @@ the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
 Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
 their npm publications and Git tags remain the historical release evidence.
 
+## 2.0.1
+
+- preserve primitive caller abort reasons with native Node 18 fetch before
+  response headers arrive
+- retain active requests so garbage collection cannot break timeout or caller
+  cancellation forwarding
+- preserve existing retained release artifacts and reject filename collisions
+- update the development-only Happy DOM dependency to 21.0.4 to address known
+  security advisories
+
 ## 2.0.0
 
 ### Breaking changes

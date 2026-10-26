@@ -12,6 +12,8 @@ const rawBodyControllers = new WeakMap<ReadableStream<Uint8Array>, {
   controller: AbortController
   request: Request
 }>()
+// Node's Request owns the controller that forwards aborts to its signal.
+const activeRequests = new WeakMap<AbortController, Request>()
 
 function removeRetainedAbortListener(link: RetainedAbortListener): void {
   link.source.deref()?.removeEventListener('abort', link.listener)
@@ -29,6 +31,7 @@ function createWeakAbortListener(
 export function createTimeoutController(signal?: AbortSignal, timeout?: number): {
   abort: (reason?: unknown) => void
   cleanup: () => void
+  retainRequest: (request: Request) => void
   retainExternalAbort: (body: ReadableStream<Uint8Array> | null, request: Request) => void
   didTimeout: () => boolean
   signal: AbortSignal
@@ -69,6 +72,7 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
       clearTimeoutId()
       controller.abort(reason)
     },
+    retainRequest: (request) => { activeRequests.set(controller, request) },
     retainExternalAbort: (body, request) => {
       if (body === null || signal === undefined || controller.signal.aborted) {
         return
@@ -99,6 +103,7 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
     },
     cleanup: () => {
       clearTimeoutId()
+      activeRequests.delete(controller)
 
       signal?.removeEventListener('abort', onAbort)
     },
