@@ -6,7 +6,7 @@ A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript
 npm install @gavoryn/clearfetch
 ```
 
-This README describes the 2.0.0 source. For changes from 1.x, see the
+This README describes the 2.0.1 source. For changes from 1.x, see the
 [migration guide](./MIGRATION.md). Check [npm](https://www.npmjs.com/package/@gavoryn/clearfetch)
 and [GitHub Releases](https://github.com/bmurdock/clearfetch/releases) for publication status.
 
