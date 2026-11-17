@@ -949,6 +949,8 @@ Applications that own diagnostics may use the public `redactHeaders()` helper to
 - `x-api-key`
 - `api-key`
 
+Custom `headerNames` add to this list; they do not disable built-in redaction.
+
 ### Redirect behavior
 
 Redirect handling should default to platform behavior unless explicitly exposed and documented.

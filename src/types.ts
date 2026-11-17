@@ -34,6 +34,7 @@ export type QueryParams = Record<string, QueryValue>
 export type QueryInput = QueryParams | URLSearchParams
 
 export interface RedactHeadersOptions {
+  /** Additional names to redact alongside the built-in sensitive headers. */
   headerNames?: readonly string[]
   replacement?: string
 }

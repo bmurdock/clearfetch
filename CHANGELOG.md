@@ -5,6 +5,17 @@ the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
 Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
 their npm publications and Git tags remain the historical release evidence.
 
+## 2.0.2
+
+- keep built-in credential headers redacted when custom `headerNames` are supplied;
+  custom names now add to the default list instead of replacing it
+- stop failed-attempt timeout timers before retry backoff while preserving caller
+  cancellation during the delay
+- remove redundant tests and strengthen cancellation-phase, release-deadline,
+  provenance, and immutable hook-metadata coverage
+- adjust the unpacked package budget to accommodate the fixes and public option
+  documentation
+
 ## 2.0.1
 
 - preserve primitive caller abort reasons with native Node 18 fetch before

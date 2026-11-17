@@ -36,9 +36,21 @@ for (const reason of [
       }
 
       if (phase === 'fetch') {
-        controller.abort(reason)
-        // Native fetch rejects with the original reason even before dispatch.
-        await assertCancellation(request('data:application/json,{}', options))
+        let fetchStarted!: () => void
+        const started = new Promise<void>((resolve) => { fetchStarted = resolve })
+        await withMockedFetch(async (input) => {
+          assert.ok(input instanceof Request)
+          assert.equal(input.signal.aborted, false)
+          return new Promise<Response>((_resolve, reject) => {
+            input.signal.addEventListener('abort', () => reject(input.signal.reason), { once: true })
+            fetchStarted()
+          })
+        }, async () => {
+          const result = request('https://api.example.com', options)
+          await started
+          controller.abort(reason)
+          await assertCancellation(result)
+        })
       } else if (phase === 'parser') {
         let parserStarted!: () => void
         const started = new Promise<void>((resolve) => { parserStarted = resolve })

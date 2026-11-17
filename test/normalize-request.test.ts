@@ -79,7 +79,6 @@ test('createBeforeRequestContext reads accessor-backed query values once', () =>
     'https://api.example.com/users?token=stable',
   )
   assert.deepEqual(context.hookContext.options.query, { token: 'stable' })
-  assert.equal(context.normalizedOptions.query, context.hookContext.options.query)
   assert.equal(Object.isFrozen(context.normalizedOptions.query), true)
 })
 

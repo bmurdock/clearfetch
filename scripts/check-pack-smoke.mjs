@@ -12,7 +12,7 @@ const tscPath = path.join(rootDir, 'node_modules', 'typescript', 'bin', 'tsc')
 const retainTarball = process.argv.includes('--retain')
 const unexpectedArguments = process.argv.slice(2).filter((argument) => argument !== '--retain')
 const MAX_PACKED_BYTES = 50_000
-const MAX_UNPACKED_BYTES = 175_000
+const MAX_UNPACKED_BYTES = 176_000
 const MAX_PACKED_FILES = 65
 
 if (unexpectedArguments.length > 0) {

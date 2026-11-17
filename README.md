@@ -268,6 +268,7 @@ diagnostics can use `redactHeaders()` to copy headers and replace common
 sensitive values before writing application-owned diagnostics.
 By default, it redacts exact case-insensitive matches for `authorization`,
 `cookie`, `set-cookie`, `proxy-authorization`, `x-api-key`, and `api-key`.
+Pass `headerNames` to redact additional names alongside these defaults.
 
 ```ts
 import { createClient, redactHeaders } from '@gavoryn/clearfetch'

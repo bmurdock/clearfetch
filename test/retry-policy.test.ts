@@ -16,8 +16,15 @@ test('normalizeRetry disables retries by default and when request retry is false
   assert.equal(normalizeRetry({ attempts: 2 }, false), false)
 })
 
-test('normalizeRetry applies DEFAULT_RETRY values', () => {
-  assert.deepEqual(normalizeRetry(undefined, {}), DEFAULT_RETRY)
+test('normalizeRetry applies documented defaults', () => {
+  assert.deepEqual(normalizeRetry(undefined, {}), {
+    attempts: 3,
+    backoffMs: 250,
+    maxBackoffMs: 2_000,
+    multiplier: 2,
+    retryOnStatuses: [429, 502, 503, 504],
+    retryOnMethods: ['GET', 'HEAD'],
+  })
   assert.deepEqual(normalizeRetry({ attempts: 2 }, undefined), {
     ...DEFAULT_RETRY,
     attempts: 2,

@@ -18,7 +18,7 @@ export function redactHeaders(
   const redacted = new Headers(headers)
   const replacement = options.replacement ?? DEFAULT_REPLACEMENT
   const sensitiveNames = new Set(
-    (options.headerNames ?? DEFAULT_REDACTED_HEADER_NAMES).map((name) =>
+    [...DEFAULT_REDACTED_HEADER_NAMES, ...(options.headerNames ?? [])].map((name) =>
       name.toLowerCase(),
     ),
   )

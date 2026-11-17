@@ -61,41 +61,59 @@ test('release metadata verification treats integrity mismatches as terminal', as
       packageVersion: '1.0.8',
       expectedIntegrity: 'sha512-expected',
       fetchImpl: harness.fetch,
-      retryDelaysMs: [],
+      retryDelaysMs: [0, 0],
+      sleepImpl: async () => {},
+      logError: () => {},
     }),
     /Published integrity does not match the verified tarball/,
   )
   assert.equal(harness.fetchCalls(), 1)
 })
 
-test('release polling fetches have per-request deadlines', async () => {
-  const requestedTimeouts: number[] = []
-  const createTimeoutSignal = (timeoutMs: number) => {
-    requestedTimeouts.push(timeoutMs)
-    return new AbortController().signal
-  }
-
-  await waitForRegistryMetadata({
-    packageName: '@gavoryn/clearfetch',
-    packageVersion: '1.0.8',
-    expectedIntegrity: 'sha512-expected',
-    fetchImpl: async () => new Response(JSON.stringify({
-      dist: {
-        integrity: 'sha512-expected',
-        attestations: { url: 'https://registry.example/attestation' },
+test('release polling fetches forward deadline signals and observe expiration', { timeout: 2_000 }, async () => {
+  for (const phase of ['metadata', 'attestation'] as const) {
+    const controller = new AbortController()
+    const reason = new DOMException('deadline expired', 'TimeoutError')
+    const requestedTimeouts: number[] = []
+    let aborts = 0
+    const options = {
+      fetchImpl: async (_input: string | URL, init?: RequestInit) => {
+        assert.equal(init?.signal, controller.signal)
+        return new Promise<Response>((_resolve, reject) => {
+          controller.signal.addEventListener('abort', () => {
+            aborts += 1
+            reject(controller.signal.reason)
+          }, { once: true })
+          queueMicrotask(() => controller.abort(reason))
+        })
       },
-    })),
-    retryDelaysMs: [],
-    createTimeoutSignal,
-  })
-  await waitForAttestationDocument({
-    attestationURL: 'https://registry.example/attestation',
-    fetchImpl: async () => new Response('{}'),
-    retryDelaysMs: [],
-    createTimeoutSignal,
-  })
+      retryDelaysMs: [],
+      createTimeoutSignal: (timeoutMs: number) => {
+        requestedTimeouts.push(timeoutMs)
+        return controller.signal
+      },
+      logError: () => {},
+    }
 
-  assert.deepEqual(requestedTimeouts, [5_000, 5_000])
+    await assert.rejects(
+      phase === 'metadata'
+        ? waitForRegistryMetadata({
+            ...options,
+            packageName: '@gavoryn/clearfetch',
+            packageVersion: '1.0.8',
+            expectedIntegrity: 'sha512-expected',
+          })
+        : waitForAttestationDocument({
+            ...options,
+            attestationURL: 'https://registry.example/attestation',
+          }),
+      phase === 'metadata'
+        ? /npm metadata did not become ready: deadline expired/
+        : /npm attestation did not become available/,
+    )
+    assert.deepEqual(requestedTimeouts, [5_000])
+    assert.equal(aborts, 1)
+  }
 })
 
 test('release attestation verification retries transient propagation gaps', async () => {
@@ -174,9 +192,23 @@ test('release provenance verification binds artifact, workflow, tag, and commit'
   const inputs = createProvenanceInputs()
 
   assert.doesNotThrow(() => verifyProvenance(inputs))
+  for (const [overrides, message] of [
+    [{ packageIntegrity: 'sha512-d3Jvbmc=' }, /SLSA subject does not match/],
+    [{ packageName: '@other/package' }, /SLSA subject does not match/],
+    [{ packageVersion: '9.9.9' }, /SLSA subject does not match/],
+    [{ githubRepository: 'other/repository' }, /expected release workflow/],
+    [{ tagName: 'v9.9.9' }, /expected release workflow/],
+    [{ githubSha: 'wrong-commit' }, /release commit/],
+  ] as const) {
+    assert.throws(() => verifyProvenance({ ...inputs, ...overrides }), message)
+  }
   assert.throws(
-    () => verifyProvenance({ ...inputs, githubSha: 'wrong-commit' }),
-    /SLSA provenance does not identify the release commit/,
+    () => verifyProvenance(createProvenanceInputs({ workflowPath: '.github/workflows/other.yml' })),
+    /expected release workflow/,
+  )
+  assert.throws(
+    () => verifyProvenance(createProvenanceInputs({ eventName: 'workflow_dispatch' })),
+    /not produced by a tag push/,
   )
 })
 
@@ -202,7 +234,10 @@ function createRegistryHarness(responses: MockRegistryResponse[]) {
   }
 }
 
-function createProvenanceInputs() {
+function createProvenanceInputs({
+  workflowPath = '.github/workflows/release.yml',
+  eventName = 'push',
+} = {}) {
   const packageName = '@gavoryn/clearfetch'
   const packageVersion = '1.0.8'
   const githubRepository = 'bmurdock/clearfetch'
@@ -222,7 +257,7 @@ function createProvenanceInputs() {
         externalParameters: {
           workflow: {
             repository: expectedRepository,
-            path: '.github/workflows/release.yml',
+            path: workflowPath,
             ref: expectedRef,
           },
         },
@@ -231,7 +266,7 @@ function createProvenanceInputs() {
           digest: { gitCommit: githubSha },
         }],
         internalParameters: {
-          github: { event_name: 'push' },
+          github: { event_name: eventName },
         },
       },
     },

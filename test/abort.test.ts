@@ -687,12 +687,16 @@ test('external abort wins over later timeout classification', async () => {
 test('retry backoff does not consume per-attempt timeout windows', async () => {
   const originalFetch = globalThis.fetch
   let attempts = 0
+  let firstSignal: AbortSignal | undefined
 
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (request) => {
     attempts += 1
     if (attempts === 1) {
+      assert.ok(request instanceof Request)
+      firstSignal = request.signal
       throw new TypeError('fetch failed')
     }
+    assert.equal(firstSignal?.aborted, false)
     return new Response(JSON.stringify({ ok: true }))
   }
 
@@ -716,14 +720,17 @@ test('retry backoff does not consume per-attempt timeout windows', async () => {
   }
 })
 
-test('abort during HTTP retry backoff stops promptly with AbortRequestError', async () => {
+test('abort during HTTP retry backoff stops promptly with AbortRequestError', { timeout: 1_000 }, async () => {
   const originalFetch = globalThis.fetch
   const controller = new AbortController()
   const observedErrors: unknown[] = []
   let attempts = 0
+  let abortId: ReturnType<typeof setTimeout> | undefined
 
   globalThis.fetch = async () => {
     attempts += 1
+    // The timer runs after the response has entered the backoff wait.
+    abortId = setTimeout(() => controller.abort(), 0)
     return new Response('retry', {
       status: 503,
       statusText: 'Service Unavailable',
@@ -742,15 +749,13 @@ test('abort during HTTP retry backoff stops promptly with AbortRequestError', as
       },
       retry: {
         attempts: 2,
-        backoffMs: 50,
-        maxBackoffMs: 50,
+        backoffMs: 2_000,
+        maxBackoffMs: 2_000,
         multiplier: 1,
         retryOnStatuses: [503],
         retryOnMethods: ['GET'],
       },
     })
-
-    controller.abort()
 
     await assert.rejects(
       () => promise,
@@ -760,27 +765,26 @@ test('abort during HTTP retry backoff stops promptly with AbortRequestError', as
     assert.equal(observedErrors.length, 1)
     assert.ok(observedErrors[0] instanceof AbortRequestError)
   } finally {
+    clearTimeout(abortId)
     globalThis.fetch = originalFetch
   }
 })
 
-test('abort during retry backoff stops promptly with AbortRequestError', async () => {
+test('abort during retry backoff stops promptly with AbortRequestError', { timeout: 1_000 }, async () => {
   const originalFetch = globalThis.fetch
+  const controller = new AbortController()
   const observedErrors: unknown[] = []
   let attempts = 0
-  let signalFirstAttempt: (() => void) | undefined
-  const firstAttempt = new Promise<void>((resolve) => {
-    signalFirstAttempt = resolve
-  })
+  let abortId: ReturnType<typeof setTimeout> | undefined
 
   globalThis.fetch = async () => {
     attempts += 1
-    signalFirstAttempt?.()
+    // The timer runs after the rejection has entered the backoff wait.
+    abortId = setTimeout(() => controller.abort(), 0)
     throw new TypeError('fetch failed')
   }
 
   try {
-    const controller = new AbortController()
     const promise = request('https://api.example.com/users', {
       signal: controller.signal,
       hooks: {
@@ -792,16 +796,13 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
       },
       retry: {
         attempts: 3,
-        backoffMs: 500,
-        maxBackoffMs: 500,
+        backoffMs: 2_000,
+        maxBackoffMs: 2_000,
         multiplier: 1,
         retryOnStatuses: [503],
         retryOnMethods: ['GET'],
       },
     })
-
-    await firstAttempt
-    controller.abort()
 
     await assert.rejects(
       () => promise,
@@ -812,6 +813,7 @@ test('abort during retry backoff stops promptly with AbortRequestError', async (
     assert.equal(observedErrors.length, 1)
     assert.ok(observedErrors[0] instanceof AbortRequestError)
   } finally {
+    clearTimeout(abortId)
     globalThis.fetch = originalFetch
   }
 })
