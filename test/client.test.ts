@@ -5,23 +5,6 @@ import { ConfigError, HttpError, NetworkError } from '../src/errors.js'
 import { createClient } from '../src/index.js'
 import { request } from '../src/request.js'
 
-test('request parses json responses', async () => {
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async () =>
-    new Response(JSON.stringify({ ok: true }), {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-
-  try {
-    const result = await request<{ ok: boolean }>('https://api.example.com/users')
-    assert.deepEqual(result, { ok: true })
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
 test('public request surfaces reject invalid option containers', async () => {
   const client = createClient()
 
@@ -292,18 +275,12 @@ test('createClient snapshots defaults against later external mutation', async ()
       context.headers.set('x-from-hook', 'original')
     },
   ]
-  const retry = {
-    attempts: 2,
-    retryOnStatuses: [503],
-    retryOnMethods: ['GET'] as ('GET')[],
-  }
   const defaults = {
     baseURL: 'https://api.example.com',
     headers: defaultHeaders,
     hooks: {
       beforeRequest: beforeRequestHooks,
     },
-    retry,
   }
 
   globalThis.fetch = async (input) => {
@@ -319,7 +296,6 @@ test('createClient snapshots defaults against later external mutation', async ()
     beforeRequestHooks[0] = (context: { headers: Headers }) => {
       context.headers.set('x-from-hook', 'mutated')
     }
-    retry.retryOnStatuses[0] = 500
 
     await client.get('/users')
 

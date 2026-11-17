@@ -31,6 +31,7 @@ function createWeakAbortListener(
 export function createTimeoutController(signal?: AbortSignal, timeout?: number): {
   abort: (reason?: unknown) => void
   cleanup: () => void
+  stopTimer: () => void
   retainRequest: (request: Request) => void
   retainExternalAbort: (body: ReadableStream<Uint8Array> | null, request: Request) => void
   didTimeout: () => boolean
@@ -72,6 +73,7 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
       clearTimeoutId()
       controller.abort(reason)
     },
+    stopTimer: clearTimeoutId,
     retainRequest: (request) => { activeRequests.set(controller, request) },
     retainExternalAbort: (body, request) => {
       if (body === null || signal === undefined || controller.signal.aborted) {

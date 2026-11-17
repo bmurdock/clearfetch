@@ -25,6 +25,8 @@ test('redactHeaders redacts common sensitive headers case-insensitively', () => 
 
 test('redactHeaders returns a copy and supports custom redaction options', () => {
   const source = new Headers({
+    authorization: 'Bearer secret',
+    cookie: 'session=secret',
     'x-secret-token': 'secret',
     accept: 'application/json',
   })
@@ -35,6 +37,9 @@ test('redactHeaders returns a copy and supports custom redaction options', () =>
   })
 
   assert.equal(source.get('x-secret-token'), 'secret')
+  assert.equal(source.get('authorization'), 'Bearer secret')
   assert.equal(redacted.get('x-secret-token'), '<hidden>')
+  assert.equal(redacted.get('authorization'), '<hidden>')
+  assert.equal(redacted.get('cookie'), '<hidden>')
   assert.equal(redacted.get('accept'), 'application/json')
 })

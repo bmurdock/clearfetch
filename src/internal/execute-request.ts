@@ -504,6 +504,7 @@ async function fetchWithHandling(params: {
         attempt,
       )
     ) {
+      timeout.stopTimer()
       await waitForRetryWithHandling({
         attempt,
         context,
@@ -603,6 +604,7 @@ async function parseWithHandling<T>(params: {
         attempt,
       )
     ) {
+      timeout.stopTimer()
       await waitForRetryWithHandling({
         attempt,
         context,
