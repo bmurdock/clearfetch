@@ -1,6 +1,6 @@
 {
   "name": "@gavoryn/clearfetch",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "A dependency-free, fetch-native HTTP client for modern JavaScript and TypeScript runtimes.",
   "type": "module",
   "sideEffects": false,
@@ -8,7 +8,12 @@
     "node": ">=18"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/internal/*.d.ts",
+    "!dist/types.js",
+    "!dist/types.js.map",
+    "!dist/internal/normalized-request-options.js",
+    "!dist/internal/normalized-request-options.js.map"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

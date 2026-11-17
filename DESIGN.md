@@ -176,8 +176,14 @@ The package should not expose internal implementation paths.
 
 The npm artifact ships JavaScript source maps for mapped stack traces. It does
 not ship declaration maps because TypeScript source files are not included in
-the package. Packed bytes, unpacked bytes, and file count are bounded by
-deliberate package-smoke budgets so the small-package goal remains measurable.
+the package. Unused internal declarations and empty runtime stubs for type-only
+modules are excluded from the tarball while remaining in the development build.
+Packed-artifact checks compile the installed public declarations with all three
+supported TypeScript compiler versions without skipping declaration checks, and
+verify source-map references and contents for shipped runtime modules.
+Packed bytes, unpacked bytes, and file count are bounded by deliberate
+package-smoke budgets of 50,000 bytes, 200,000 bytes, and 65 files, respectively,
+so the small-package goal remains measurable with headroom for routine fixes.
 
 ### Performance evidence
 

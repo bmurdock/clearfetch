@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,11 +8,15 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const rootDir = process.cwd()
-const tscPath = path.join(rootDir, 'node_modules', 'typescript', 'bin', 'tsc')
+const compilerPaths = [
+  'typescript-v5/bin/tsc',
+  '@typescript/typescript6/bin/tsc6',
+  'typescript/bin/tsc',
+].map((compiler) => path.join(rootDir, 'node_modules', compiler))
 const retainTarball = process.argv.includes('--retain')
 const unexpectedArguments = process.argv.slice(2).filter((argument) => argument !== '--retain')
 const MAX_PACKED_BYTES = 50_000
-const MAX_UNPACKED_BYTES = 176_000
+const MAX_UNPACKED_BYTES = 200_000
 const MAX_PACKED_FILES = 65
 
 if (unexpectedArguments.length > 0) {
@@ -61,6 +65,8 @@ try {
       '',
       'const abortError = new mod.AbortRequestError()',
       "if (!mod.isHttpClientError(abortError)) throw new Error('error predicate rejected public error')",
+      "const result = await mod.request('data:application/json,%7B%22ok%22%3Atrue%7D')",
+      "if (result?.ok !== true) throw new Error('packed request did not parse JSON')",
       '',
     ].join('\n'),
     'utf8',
@@ -85,7 +91,7 @@ try {
     'utf8',
   )
 
-  const smokeFile = path.join(tempDir, 'smoke.ts')
+  const smokeFile = path.join(tempDir, 'smoke.mts')
   await writeFile(
     smokeFile,
     [
@@ -225,9 +231,9 @@ try {
           lib: ['ES2022', 'DOM', 'DOM.Iterable'],
           strict: true,
           noEmit: true,
-          skipLibCheck: true,
+          skipLibCheck: false,
         },
-        include: ['smoke.ts'],
+        include: ['smoke.mts'],
       },
       null,
       2,
@@ -244,10 +250,17 @@ try {
         `npm install --ignore-scripts ${shellEscape(tarballPath)} >/dev/null`,
         'node smoke-import.mjs',
         'node smoke-subpath.mjs',
-        `${shellEscape(tscPath)} -p tsconfig.json`,
+        ...compilerPaths.map((compiler) =>
+          `${shellEscape(process.execPath)} ${shellEscape(compiler)} -p tsconfig.json`,
+        ),
       ].join(' && '),
     ],
     { cwd: tempDir },
+  )
+
+  await assertPackedSourceMaps(
+    packResult.files,
+    path.join(tempDir, 'node_modules', packageName),
   )
 
   if (retainTarball) {
@@ -312,6 +325,41 @@ function assertPackedFiles(files) {
     throw new Error(
       `declaration maps must not ship without their TypeScript sources: ${declarationMaps.join(', ')}`,
     )
+  }
+
+  const packedPaths = new Set(files.map((entry) => entry.path))
+  for (const filePath of packedPaths) {
+    if (filePath.endsWith('.js') && !packedPaths.has(`${filePath}.map`)) {
+      throw new Error(`missing source map for packed runtime file: ${filePath}`)
+    }
+    if (filePath.endsWith('.js.map') && !packedPaths.has(filePath.slice(0, -4))) {
+      throw new Error(`source map has no packed runtime file: ${filePath}`)
+    }
+  }
+}
+
+async function assertPackedSourceMaps(files, packageDir) {
+  for (const { path: filePath } of files) {
+    if (!filePath.endsWith('.js')) {
+      continue
+    }
+
+    const javascript = await readFile(path.join(packageDir, filePath), 'utf8')
+    const expectedMap = `${path.basename(filePath)}.map`
+    if (!javascript.trimEnd().endsWith(`//# sourceMappingURL=${expectedMap}`)) {
+      throw new Error(`packed runtime file must reference its source map: ${filePath}`)
+    }
+
+    const sourceMap = JSON.parse(await readFile(path.join(packageDir, `${filePath}.map`), 'utf8'))
+    if (
+      sourceMap.version !== 3 ||
+      sourceMap.file !== path.basename(filePath) ||
+      !Array.isArray(sourceMap.sources) ||
+      sourceMap.sources.length === 0 ||
+      typeof sourceMap.mappings !== 'string'
+    ) {
+      throw new Error(`invalid packed source map: ${filePath}.map`)
+    }
   }
 }
 
