@@ -5,6 +5,16 @@ the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
 Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
 their npm publications and Git tags remain the historical release evidence.
 
+## 2.0.3
+
+- exclude unused internal declarations and empty runtime stubs for type-only
+  modules from the npm package while preserving public types and runtime source maps
+- validate installed package declarations with TypeScript 5, 6, and 7 without
+  skipping declaration checks, and reject missing runtime files or invalid source maps
+- add packaging regressions for exclusions that would break runtime imports,
+  public declaration dependencies, or source-map availability
+- raise the unpacked package budget to 200,000 bytes to leave room for routine fixes
+
 ## 2.0.2
 
 - keep built-in credential headers redacted when custom `headerNames` are supplied;

@@ -70,8 +70,12 @@ function assertNoLifecycleScripts(packageConfig) {
 
 function assertPublishWhitelist(packageConfig) {
   const files = packageConfig.files
-  if (!Array.isArray(files) || files.length !== 1 || files[0] !== 'dist') {
-    throw new Error('`files` must whitelist only the built dist/ directory')
+  if (
+    !Array.isArray(files) ||
+    files[0] !== 'dist' ||
+    files.slice(1).some((entry) => typeof entry !== 'string' || !entry.startsWith('!dist/'))
+  ) {
+    throw new Error('`files` must whitelist only dist/ with optional exclusions inside dist/')
   }
 
   if (typeof packageConfig.main !== 'string' || !packageConfig.main.startsWith('./dist/')) {

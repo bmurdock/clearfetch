@@ -504,6 +504,8 @@ The public package surface is intentionally narrow:
 - `NormalizedRequestOptions` is no longer exported in 2.0.0; use `RequestOptions`, `ClientDefaults`, or `HookRequestOptions` for the corresponding public boundary
 - the package includes no lifecycle scripts and is intended to publish only built `dist/` artifacts
 - JavaScript source maps remain available for mapped stack traces; declaration maps are omitted because TypeScript source files are not shipped
+- unused internal declarations and empty JavaScript stubs for type-only modules are excluded from the tarball; the full development build is retained
+- packed-artifact checks verify public declarations with TypeScript 5, 6, and 7 and require valid source maps for shipped runtime modules
 - packed and unpacked artifact sizes and file counts are guarded by deliberate budgets
 
 ## Development
