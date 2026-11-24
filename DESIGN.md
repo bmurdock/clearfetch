@@ -444,6 +444,14 @@ If a request input is relative and `baseURL` is provided, the final URL is resol
 
 The package should not implement custom URL concatenation logic beyond what is needed to produce correct and predictable results.
 
+A client's `baseURL` scopes the built-in sensitive headers listed in
+[Sensitive data handling](#sensitive-data-handling). After `beforeRequest`
+hooks run, request construction removes those headers if the final URL's scheme,
+host, or port differs from the base origin, or if the base origin is opaque.
+This applies to default, per-request, and hook-supplied headers on every
+attempt. Requests without a `baseURL` use their supplied headers. Native fetch
+handles any subsequent redirects.
+
 ---
 
 ## URL and query serialization
@@ -581,11 +589,12 @@ As a result, JSON responses are typed as `T | undefined` rather than `T` alone.
 When `responseType` is `raw`, the original `Response` object is returned.
 
 The attempt timer ends at this handoff, but caller cancellation remains connected
-while the returned body is reachable, including through a reader. The body owns
-the retained request and abort controller through a weak-key association; the caller's signal
-holds only a weak forwarder. That listener is removed on abort or reclaimed after
-the body and controller become unreachable. Reading the returned body uses native
-error semantics and does not re-enter the completed request's `onError` hooks.
+while the returned body is reachable, including through a reader. A weak-key
+association ties the native request, abort controller, and any private dependent
+signal to the body. The forwarder from the observed signal is weak. Clearfetch
+removes that listener on abort or after the controller becomes unreachable.
+Reading the returned body uses native error semantics and does not re-enter
+the completed request's `onError` hooks.
 
 This is important for advanced consumers and serves as an escape hatch when the convenience layer should get out of the way.
 
@@ -720,6 +729,11 @@ If the external signal aborts first, the request must fail with an abort error r
 
 Where the runtime exposes an external abort reason, the package should preserve that reason as the `AbortRequestError` cause.
 
+On runtimes with `AbortSignal.any()`, clearfetch observes a private dependent
+signal so a caller listener cannot suppress cancellation by stopping event
+propagation. Runtimes without compatible native signal composition use an
+abort listener on the original signal.
+
 ### Signal composition
 
 If both timeout and external abort are present, the package must compose them so that either can cancel the request.
@@ -794,6 +808,9 @@ The package itself must not emit telemetry.
 observer delays request rejection, including after cancellation. If an observer
 throws, its error replaces the error delivered to the caller. Applications
 should keep observers bounded and handle failures in their own logging code.
+
+When a response hook fails, clearfetch starts cancellation of the abandoned
+response before calling error observers. Observers can inspect response metadata.
 
 ### Hook ordering
 
@@ -1192,8 +1209,8 @@ Good documentation is part of the design, not an afterthought.
 
 The public contract includes exported TypeScript declarations. Incompatible
 changes require a major release, even when they correct unsound declarations.
-Version 2.0.0 corrects client response-mode assignability and removes the
-deprecated `NormalizedRequestOptions` export. See [the migration guide](./MIGRATION.md).
+Version 3.0.0 scopes sensitive headers to the base origin and exposes query
+metadata through readonly declarations. See [the migration guide](./MIGRATION.md).
 
 Changes to the following behaviors should be treated with high caution because they are semantically significant:
 

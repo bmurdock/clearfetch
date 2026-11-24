@@ -306,3 +306,102 @@ test('createClient snapshots defaults against later external mutation', async ()
     globalThis.fetch = originalFetch
   }
 })
+
+test('clients scope sensitive headers to the base origin after URL resolution and hooks', async () => {
+  const originalFetch = globalThis.fetch
+  const requests: Request[] = []
+  let retryAttempts = 0
+  globalThis.fetch = async (input) => {
+    const outgoing = input as Request
+    requests.push(outgoing)
+    const retry = new URL(outgoing.url).pathname === '/retry' && ++retryAttempts === 1
+    return new Response(null, { status: retry ? 503 : 204 })
+  }
+
+  const sensitiveHeaders = {
+    Authorization: 'Bearer fixture',
+    Cookie: 'session=fixture',
+    'Set-Cookie': 'session=fixture',
+    'Proxy-Authorization': 'Basic fixture',
+    'X-API-Key': 'fixture',
+    'Api-Key': 'fixture',
+  }
+  const client = createClient({
+    baseURL: 'https://api.example.com',
+    headers: { ...sensitiveHeaders, Accept: 'application/json' },
+  })
+
+  try {
+    await client.get('/items')
+    await client.get('https://api.example.com:443/items')
+    await client.get('//other.example.com/items')
+    await client.get('https://api.example.com:8443/items')
+    await client.get('https://other.example.com/items', {
+      headers: { Authorization: 'Bearer explicit' },
+    })
+    await client.extend({
+      hooks: { beforeRequest: [({ headers }) => { headers.set('X-API-Key', 'hook') }] },
+    }).get('/items', {
+      hooks: { beforeRequest: [(context) => {
+        context.url = new URL('https://other.example.com/items')
+      }] },
+    })
+    await client.get('https://other.example.com/items', {
+      hooks: { beforeRequest: [(context) => {
+        context.url = new URL('https://api.example.com/items')
+      }] },
+    })
+    await request('https://other.example.com/items', { headers: sensitiveHeaders })
+    await client.get('https://other.example.com/retry', {
+      retry: { attempts: 2, backoffMs: 0 },
+    })
+
+    const expected = [
+      { origin: 'https://api.example.com', credentials: true, accept: 'application/json' },
+      { origin: 'https://api.example.com', credentials: true, accept: 'application/json' },
+      { origin: 'https://other.example.com', credentials: false, accept: 'application/json' },
+      { origin: 'https://api.example.com:8443', credentials: false, accept: 'application/json' },
+      { origin: 'https://other.example.com', credentials: false, accept: 'application/json' },
+      { origin: 'https://other.example.com', credentials: false, accept: 'application/json' },
+      { origin: 'https://api.example.com', credentials: true, accept: 'application/json' },
+      { origin: 'https://other.example.com', credentials: true, accept: null },
+      { origin: 'https://other.example.com', credentials: false, accept: 'application/json' },
+      { origin: 'https://other.example.com', credentials: false, accept: 'application/json' },
+    ]
+    assert.deepEqual(requests.map((outgoing) => {
+      const credentials = outgoing.headers.has('authorization')
+      for (const name of Object.keys(sensitiveHeaders)) {
+        assert.equal(outgoing.headers.has(name), credentials, name)
+      }
+      return {
+        origin: new URL(outgoing.url).origin,
+        credentials,
+        accept: outgoing.headers.get('accept'),
+      }
+    }), expected)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('method helpers preserve prototype-backed and non-enumerable options', async () => {
+  class TextOptions {
+    get responseType(): 'text' { return 'text' }
+    get method(): 'HEAD' { throw new Error('helper method is authoritative') }
+  }
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input) => {
+    const outgoing = input as Request
+    assert.equal(outgoing.method, 'GET')
+    assert.equal(outgoing.headers.get('x-fixture'), 'enabled')
+    return new Response('"fixture"')
+  }
+  try {
+    const options = new TextOptions()
+    Object.defineProperty(options, 'headers', { value: { 'x-fixture': 'enabled' } })
+    assert.equal(await createClient().get('https://api.example.com/items', options), '"fixture"')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

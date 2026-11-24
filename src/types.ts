@@ -138,7 +138,7 @@ export interface HookRequestOptions {
   readonly method: RequestMethod
   readonly attempt: number
   readonly maxAttempts: number
-  readonly query?: QueryParams
+  readonly query?: Readonly<Record<string, PrimitiveQueryValue | readonly PrimitiveQueryValue[] | undefined>>
   readonly queryString?: string
   readonly timeout?: number
   readonly signal?: AbortSignal

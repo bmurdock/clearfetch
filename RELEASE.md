@@ -10,7 +10,8 @@ Expected flow:
 2. Merge reviewed changes into `main`.
 3. Confirm `CI` and dependency review checks are passing, including the package guardrails.
 4. Optionally run the `Release` workflow manually to exercise the non-publishing dry-run path.
-5. Create an annotated release tag in the form `vX.Y.Z`.
+5. Fast-forward local `main` to `origin/main`. Create the annotated `vX.Y.Z`
+   tag on the verified release commit from the merged pull request.
 6. Push the tag to GitHub.
 7. Let the `Release` workflow verify and upload one exact tarball, publish that artifact to npm, and create or verify the matching GitHub Release record.
 8. Confirm npm and GitHub Releases show the same current version.
@@ -104,6 +105,8 @@ npm run check:publish-dry-run -- "release-artifact/gavoryn-clearfetch-${release_
 git diff --check
 ```
 
+The pack smoke check creates its scratch tarball in a temporary directory.
+With `--retain`, it copies the verified tarball into `release-artifact/`.
 Use the exact candidate filename when retained artifacts from older versions
 exist. A wildcard can select the wrong tarball; the identity check then fails.
 Retention preserves existing artifacts and fails if the candidate filename

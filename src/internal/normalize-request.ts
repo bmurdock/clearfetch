@@ -27,6 +27,7 @@ import {
   REQUEST_METHODS,
   normalizeRetry,
 } from './retry-policy.js'
+import { SENSITIVE_HEADER_NAMES } from './sensitive-headers.js'
 import { MAX_TIMER_DELAY_MS } from './timeout-controller.js'
 
 const RESPONSE_TYPES = new Set<ResponseType>([
@@ -40,11 +41,13 @@ const RESPONSE_TYPES = new Set<ResponseType>([
 const DEFAULT_PARSE_JSON = (text: string): unknown => JSON.parse(text)
 
 export interface ExecutionBeforeRequestContext {
+  readonly baseOrigin: string | undefined
   readonly hookContext: BeforeRequestContext
   readonly normalizedOptions: NormalizedRequestOptions
 }
 
 export interface BeforeRequestContextSnapshot {
+  baseOrigin: string | undefined
   input: string | URL
   url: URL
   options: NormalizedRequestOptions
@@ -56,14 +59,12 @@ export function createBeforeRequestContext(
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
   attempt = 1,
+  method?: RequestMethod,
 ): ExecutionBeforeRequestContext {
-  const normalized = normalizeRequestOptions(defaults, options)
+  const normalized = normalizeRequestOptions(defaults, options, method)
   const queryString = serializeValidatedQueryParams(normalized.query)
-  const url = resolveRequestURLWithQueryString(
-    input,
-    defaults.baseURL,
-    queryString,
-  )
+  const base = parseBaseURL(defaults.baseURL)
+  const url = resolveRequestURLWithQueryString(input, base, queryString)
   const resolvedBody = resolveRequestBody(normalized)
   const maxAttempts = getEffectiveRetryAttempts(
     normalized.method,
@@ -77,6 +78,7 @@ export function createBeforeRequestContext(
 
   return createExecutionBeforeRequestContext({
     attempt,
+    baseOrigin: base?.origin,
     body,
     input,
     normalized,
@@ -102,6 +104,7 @@ export function snapshotBeforeRequestContext(
   }
 
   const snapshot: BeforeRequestContextSnapshot = {
+    baseOrigin: context.baseOrigin,
     input: cloneRequestInput(hookContext.input),
     url: new URL(hookContext.url),
     options,
@@ -128,6 +131,7 @@ export function createBeforeRequestContextFromSnapshot(
 
   return createExecutionBeforeRequestContext({
     attempt,
+    baseOrigin: snapshot.baseOrigin,
     body: normalized.body,
     input: cloneRequestInput(snapshot.input),
     normalized,
@@ -138,13 +142,14 @@ export function createBeforeRequestContextFromSnapshot(
 
 function createExecutionBeforeRequestContext(params: {
   attempt: number
+  baseOrigin: string | undefined
   body: BodyInit | null | undefined
   input: string | URL
   normalized: NormalizedRequestOptions
   queryString: string
   url: URL
 }): ExecutionBeforeRequestContext {
-  const { attempt, body, input, normalized, queryString, url } = params
+  const { attempt, baseOrigin, body, input, normalized, queryString, url } = params
   const maxAttempts = getEffectiveRetryAttempts(
     normalized.method,
     normalized.retry,
@@ -181,6 +186,7 @@ function createExecutionBeforeRequestContext(params: {
   })
 
   return Object.freeze({
+    baseOrigin,
     hookContext,
     normalizedOptions: normalized,
   })
@@ -242,13 +248,20 @@ export function buildRequestFromContext(
   context: ExecutionBeforeRequestContext,
   signal?: AbortSignal,
 ): Request {
-  const { hookContext, normalizedOptions } = context
+  const { baseOrigin, hookContext, normalizedOptions } = context
 
   const requestURL = normalizeBeforeRequestURL(hookContext.url)
+  let headers = hookContext.headers
+  if (baseOrigin !== undefined && (baseOrigin === 'null' || requestURL.origin !== baseOrigin)) {
+    headers = createHeaders(headers)
+    for (const name of SENSITIVE_HEADER_NAMES) {
+      headers.delete(name)
+    }
+  }
 
   const init: RequestInit = {
     method: normalizedOptions.method,
-    headers: hookContext.headers,
+    headers,
   }
 
   if (hookContext.body !== undefined) {
@@ -270,13 +283,13 @@ export function buildRequestFromContext(
 export function normalizeRequestOptions(
   defaults: ClientDefaults = {},
   options: RequestOptions = {},
+  helperMethod?: RequestMethod,
 ): NormalizedRequestOptions {
   validateOptionsContainer(defaults, 'defaults')
   validateOptionsContainer(options, 'options')
 
-  const method = normalizeMethod(
-    options.method !== undefined ? options.method : 'GET',
-  )
+  const rawMethod = helperMethod ?? options.method
+  const method = normalizeMethod(rawMethod === undefined ? 'GET' : rawMethod)
   const timeout = normalizeTimeout(
     options.timeout !== undefined ? options.timeout : defaults.timeout,
   )
@@ -397,21 +410,24 @@ export function resolveRequestURL(
 ): URL {
   return resolveRequestURLWithQueryString(
     input,
-    baseURL,
+    parseBaseURL(baseURL),
     serializeQueryParams(query),
   )
 }
 
 function resolveRequestURLWithQueryString(
   input: string | URL,
-  baseURL: string | URL | undefined,
+  base: URL | undefined,
   queryString: string,
 ): URL {
-  const base = baseURL === undefined ? undefined : toAbsoluteURL(baseURL, 'Invalid base URL')
   const url = input instanceof URL ? new URL(input) : resolveInputURL(input, base)
 
   applyQueryString(url, queryString)
   return url
+}
+
+function parseBaseURL(baseURL: string | URL | undefined): URL | undefined {
+  return baseURL === undefined ? undefined : toAbsoluteURL(baseURL, 'Invalid base URL')
 }
 
 export { serializeQueryParams } from './query-params.js'

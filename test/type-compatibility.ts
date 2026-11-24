@@ -69,6 +69,17 @@ const requestOptions: RequestOptions = {
 
 const beforeRequest: BeforeRequestHook = ({ headers, options }) => {
   headers.set('x-attempt', String(options.attempt))
+  if (options.query !== undefined) {
+    const { tags } = options.query
+    if (typeof tags === 'object' && tags !== null) {
+      const firstTag = tags[0]
+      void firstTag
+      // @ts-expect-error query arrays in hook metadata cannot be mutated
+      tags.push('extra')
+    }
+    // @ts-expect-error query records in hook metadata cannot be mutated
+    options.query.tags = ['replacement']
+  }
 }
 
 const errorContext: ErrorContext = {

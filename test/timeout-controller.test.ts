@@ -124,3 +124,37 @@ test('sleep rejects promptly when signal aborts', async () => {
     (error) => error instanceof DOMException && error.name === 'AbortError',
   )
 })
+
+test('caller listeners cannot block active or handed-off cancellation', {
+  skip: typeof AbortSignal.any !== 'function',
+}, () => {
+  const controller = new AbortController()
+  controller.signal.addEventListener('abort', (event) => event.stopImmediatePropagation())
+  const reason = new Error('cancel both attempts')
+  const active = createTimeoutController(controller.signal, 1_000)
+  const raw = createTimeoutController(controller.signal)
+  const body = new ReadableStream<Uint8Array>()
+  raw.retainExternalAbort(body, new Request('https://example.com', { signal: raw.signal }))
+  raw.cleanup()
+
+  try {
+    controller.abort(reason)
+    assert.equal(active.signal.reason, reason)
+    assert.equal(raw.signal.reason, reason)
+    assert.equal(active.didTimeout(), false)
+  } finally {
+    active.cleanup()
+  }
+})
+
+test('caller listeners cannot block retry backoff cancellation', {
+  skip: typeof AbortSignal.any !== 'function',
+}, async () => {
+  const controller = new AbortController()
+  controller.signal.addEventListener('abort', (event) => event.stopImmediatePropagation())
+  const reason = new Error('cancel backoff')
+  const pending = sleep(100, controller.signal)
+
+  controller.abort(reason)
+  await assert.rejects(pending, (error) => error === reason)
+})

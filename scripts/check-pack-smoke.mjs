@@ -23,19 +23,21 @@ if (unexpectedArguments.length > 0) {
   throw new Error(`unexpected arguments: ${unexpectedArguments.join(', ')}`)
 }
 
-const { stdout } = await execFileAsync('npm', ['pack', '--json', '--ignore-scripts'], {
-  cwd: rootDir,
-})
-const packResult = selectPackResult(JSON.parse(stdout))
-const tarballPath = path.join(rootDir, packResult.filename)
 const packageName = '@gavoryn/clearfetch'
-let tempDir
+const tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
 
 try {
+  const { stdout } = await execFileAsync(
+    'npm',
+    ['pack', '--json', '--ignore-scripts', '--pack-destination', tempDir],
+    { cwd: rootDir },
+  )
+  const packResult = selectPackResult(JSON.parse(stdout))
+  const tarballPath = path.join(tempDir, packResult.filename)
+
   assertPackedFiles(packResult.files)
   assertPackedSize(packResult)
 
-  tempDir = await mkdtemp(path.join(os.tmpdir(), 'clearfetch-pack-'))
   const importSmokeFile = path.join(tempDir, 'smoke-import.mjs')
   await writeFile(
     importSmokeFile,
@@ -271,10 +273,7 @@ try {
     console.log(`retained verified tarball at ${artifactPath}`)
   }
 } finally {
-  if (tempDir !== undefined) {
-    await rm(tempDir, { recursive: true, force: true })
-  }
-  await rm(tarballPath, { force: true })
+  await rm(tempDir, { recursive: true, force: true })
 }
 
 console.log('packed artifact smoke checks passed')

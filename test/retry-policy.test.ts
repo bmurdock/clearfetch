@@ -66,6 +66,16 @@ test('normalizeRetry rejects invalid attempts with existing message', () => {
   )
 })
 
+test('normalizeRetry rejects attempt counts outside the safe integer range', () => {
+  assert.throws(
+    () => normalizeRetry(undefined, { attempts: Number.MAX_SAFE_INTEGER + 1 }),
+    ConfigError,
+  )
+  const retry = normalizeRetry({ attempts: Number.MAX_SAFE_INTEGER })
+  assert.ok(retry !== false)
+  assert.equal(retry.attempts, Number.MAX_SAFE_INTEGER)
+})
+
 test('normalizeRetry rejects delays above the timer limit', () => {
   const maximumDelay = normalizeRetry(undefined, {
     backoffMs: 2_147_483_647,

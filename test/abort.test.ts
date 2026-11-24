@@ -95,6 +95,47 @@ for (const lateResult of ['resolve', 'reject'] as const) {
   })
 }
 
+test('a caller listener cannot block cancellation of a pending beforeRequest hook', {
+  skip: typeof AbortSignal.any !== 'function',
+}, async () => {
+  const controller = new AbortController()
+  controller.signal.addEventListener('abort', (event) => event.stopImmediatePropagation())
+  const reason = new Error('cancel pending hook')
+  let releaseHook!: () => void
+  let enteredHook!: () => void
+  const pendingHook = new Promise<void>((resolve) => { releaseHook = resolve })
+  const started = new Promise<void>((resolve) => { enteredHook = resolve })
+  let deadline: ReturnType<typeof setTimeout> | undefined
+
+  await withMockedFetch(async () => {
+    assert.fail('cancelled request reached fetch')
+  }, async () => {
+    const result = request('https://api.example.com/hook', {
+      signal: controller.signal,
+      hooks: { beforeRequest: [() => { enteredHook(); return pendingHook }] },
+    })
+    const rejected = assert.rejects(result, (error) => {
+      assert.ok(error instanceof AbortRequestError)
+      assert.equal(error.cause, reason)
+      return true
+    })
+    try {
+      await started
+      controller.abort(reason)
+      await Promise.race([
+        rejected,
+        new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(() => reject(new Error('pending hook ignored abort')), 500)
+        }),
+      ])
+    } finally {
+      clearTimeout(deadline)
+      releaseHook()
+      await rejected
+    }
+  })
+})
+
 test('a synchronously aborting beforeRequest hook observes its rejected promise', async () => {
   const controller = new AbortController()
   const reason = new Error('stop during beforeRequest')

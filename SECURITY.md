@@ -52,6 +52,12 @@ This package is intentionally designed to reduce attack surface:
 
 These choices reduce risk, but they do not eliminate the need for careful review, secure release practices, and responsible disclosure.
 
+For a client with a `baseURL`, clearfetch scopes its built-in sensitive headers
+to that origin on the final request passed to fetch. Native fetch handles
+redirects and browser-managed credentials. Applications own destination
+validation and the handling of custom credential headers. See
+[extended client defaults](./README.md#extended-client-defaults).
+
 The development and release path adds several supply-chain controls without
 changing the consumer package:
 
