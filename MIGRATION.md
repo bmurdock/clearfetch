@@ -1,11 +1,78 @@
-# Migrating to 2.0.0
+# Migration guide
+
+## Migrate from 2.x to 3.0.0
+
+### Scope credentials to their destination
+
+A client with a `baseURL` sends its built-in sensitive headers only to that
+origin. Clearfetch checks the final URL after `beforeRequest` hooks on each
+attempt. This applies to client defaults, per-request headers, and headers set
+by hooks. Host, scheme, and effective port must match. For the complete header
+list, see [extended client defaults](./README.md#extended-client-defaults).
+
+If you use one client to call two authenticated origins, create a separate
+client for each destination and give it the credential intended for that
+origin. Use a one-off `request()` for an isolated call to a trusted URL.
+
+```ts
+import { createClient, request } from '@gavoryn/clearfetch'
+
+const billing = createClient({
+  baseURL: 'https://billing.example.com',
+  headers: { Authorization: 'Bearer billing-token' },
+})
+
+const invoice = await billing.get('/invoices/42')
+const status = await request('https://status.example.com/account', {
+  headers: { 'X-API-Key': 'status-key' },
+})
+```
+
+Review absolute URLs, network-path references such as `//other.example.com`,
+and hook URL replacements in authenticated clients. Verify that each intended
+destination receives its credentials. Native fetch still handles redirects and
+browser-managed credentials after clearfetch constructs the request.
+
+### Read query metadata through readonly types
+
+`HookRequestOptions.query` now exposes a readonly record with readonly array
+values. The values were already frozen at runtime. Accept readonly inputs in
+helpers that inspect the metadata. If you need to sort or otherwise edit values,
+copy the array first.
+
+```ts
+import type { BeforeRequestHook } from '@gavoryn/clearfetch'
+
+const inspectTags: BeforeRequestHook = ({ options }) => {
+  const tags = options.query?.tags
+  if (typeof tags === 'object' && tags !== null) {
+    const sortedTags = [...tags].sort()
+    console.log(sortedTags)
+  }
+}
+```
+
+### Check cancellation, error observers, and retry configuration
+
+On runtimes with compatible native `AbortSignal.any()`, an abort listener that
+stops propagation on the caller's signal can no longer block clearfetch
+cancellation. Other runtimes use direct abort listeners.
+
+If an `afterResponse` hook fails, clearfetch starts cancelling the response
+before calling `onError`. Error observers can use the response status and
+headers. Inspect any body data you need in `afterResponse`.
+
+Retry counts must be positive safe integers. Use a finite, deliberately bounded
+count when mapping retry settings from application configuration.
+
+## Migrate from 1.x to 2.0.0
 
 Version 2.0.0 corrects the public client types and removes a deprecated internal
 metadata type. This guide compares 2.0.0 with 1.0.9; the changelog records older
 1.x changes separately. A version entry describes source changes, not proof of
 publication. Check npm and GitHub Releases before upgrading.
 
-## Update client annotations
+### Update client annotations
 
 Plain `HttpClient` means a client with a JSON default. In 1.0.9, a non-JSON client
 could incorrectly satisfy that type. Version 2 rejects that assignment.
@@ -64,7 +131,7 @@ async function readText(url: string, options: RequestOptions): Promise<string> {
 Generic JSON types describe expected data; they do not validate the server's
 response. Empty successful JSON bodies still return `undefined`.
 
-## Replace the removed metadata type
+### Replace the removed metadata type
 
 `NormalizedRequestOptions` is no longer a public export. It described internal
 execution state and was deprecated in 1.x. Choose the type for the boundary you
@@ -94,7 +161,7 @@ const api = createClient({
 })
 ```
 
-## Review cancellation behavior
+### Review cancellation behavior
 
 The fixes in 2.0.0 can change when your hooks run and which error you receive:
 
@@ -112,7 +179,7 @@ cooperate with cancellation where appropriate. Error observers remain awaited:
 a pending `onError` hook delays rejection, and a throwing observer replaces the
 error delivered to the caller.
 
-## Own raw response body consumption
+### Own raw response body consumption
 
 In raw mode, the attempt timeout ends when clearfetch returns the original
 `Response`. Version 2 keeps the caller's signal connected to subsequent body
@@ -140,7 +207,7 @@ Failures during a body read after return use native errors and do not invoke
 clearfetch's `onError` hooks. Handle those errors around the body read. Raw mode
 still throws `HttpError` for non-2xx responses.
 
-## Preserve existing diagnostic and timeout assumptions
+### Preserve existing diagnostic and timeout assumptions
 
 These behaviors already existed in 1.0.9 and are not new 2.0.0 changes:
 
@@ -157,7 +224,7 @@ The package remains ESM-only, with Node.js 18+ package compatibility and the
 existing TypeScript 5.0 through 7.x declaration support. Security-sensitive
 applications should use an upstream-supported Node.js release line.
 
-## Verify the upgrade
+### Verify the upgrade
 
 1. Update client annotations and remove imports of `NormalizedRequestOptions`.
 2. Compile your application and check dynamic-mode result handling.

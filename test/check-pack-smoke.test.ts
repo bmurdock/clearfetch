@@ -22,7 +22,7 @@ const checkPackSmokePath = fileURLToPath(
   new URL('../scripts/check-pack-smoke.mjs', import.meta.url),
 )
 
-test('retaining a verified tarball preserves existing artifacts and refuses collisions', {
+test('retaining a verified tarball preserves existing artifacts and root tarballs', {
   timeout: 60_000,
 }, async (t) => {
   const fixtureDir = await createBuiltFixture(t)
@@ -30,6 +30,10 @@ test('retaining a verified tarball preserves existing artifacts and refuses coll
   await mkdir(artifactDir)
   const priorArtifact = path.join(artifactDir, 'prior-candidate.tgz')
   await writeFile(priorArtifact, 'prior candidate bytes')
+  const manifest = JSON.parse(await readFile(path.join(fixtureDir, 'package.json'), 'utf8'))
+  const filename = `${manifest.name.replace(/^@/, '').replace('/', '-')}-${manifest.version}.tgz`
+  const existingRootTarball = path.join(fixtureDir, filename)
+  await writeFile(existingRootTarball, 'existing root tarball bytes')
 
   await execFileAsync(process.execPath, [checkPackSmokePath, '--retain'], {
     cwd: fixtureDir,
@@ -52,7 +56,8 @@ test('retaining a verified tarball preserves existing artifacts and refuses coll
   )
   assert.equal(await readFile(retainedPath, 'utf8'), 'existing candidate must not be replaced')
   assert.equal(await readFile(priorArtifact, 'utf8'), 'prior candidate bytes')
-  assert.deepEqual((await readdir(fixtureDir)).filter((name) => name.endsWith('.tgz')), [])
+  assert.deepEqual((await readdir(fixtureDir)).filter((name) => name.endsWith('.tgz')), [filename])
+  assert.equal(await readFile(existingRootTarball, 'utf8'), 'existing root tarball bytes')
 })
 
 for (const { label, excluded, expected } of [

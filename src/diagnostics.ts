@@ -1,13 +1,5 @@
 import type { RedactHeadersOptions } from './types.js'
-
-const DEFAULT_REDACTED_HEADER_NAMES = [
-  'authorization',
-  'cookie',
-  'set-cookie',
-  'proxy-authorization',
-  'x-api-key',
-  'api-key',
-]
+import { SENSITIVE_HEADER_NAMES } from './internal/sensitive-headers.js'
 
 const DEFAULT_REPLACEMENT = '[redacted]'
 
@@ -18,7 +10,7 @@ export function redactHeaders(
   const redacted = new Headers(headers)
   const replacement = options.replacement ?? DEFAULT_REPLACEMENT
   const sensitiveNames = new Set(
-    [...DEFAULT_REDACTED_HEADER_NAMES, ...(options.headerNames ?? [])].map((name) =>
+    [...SENSITIVE_HEADER_NAMES, ...(options.headerNames ?? [])].map((name) =>
       name.toLowerCase(),
     ),
   )

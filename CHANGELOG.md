@@ -5,6 +5,25 @@ the matching `vX.Y.Z` tag to publish to npm and a GitHub Release to exist.
 Versions `1.0.0` and `1.0.1` predate the GitHub Release record requirement;
 their npm publications and Git tags remain the historical release evidence.
 
+## 3.0.0
+
+### Breaking changes
+
+- scope sensitive request headers to the `baseURL` origin after request hooks.
+  Requests to another origin that require these headers need a client for that
+  origin or a one-off request. See [client defaults](./README.md#extended-client-defaults)
+- expose deeply readonly query metadata to TypeScript hooks
+
+See [Migrating to 3.0.0](./MIGRATION.md#migrate-from-2x-to-300).
+
+### Fixes
+
+- observe cancellation through native dependent signals when available
+- cancel abandoned response bodies before awaiting error observers
+- preserve inherited and non-enumerable options in HTTP method helpers
+- reject retry counts beyond the safe integer range
+- pack smoke-test tarballs in a temporary location to preserve existing artifacts
+
 ## 2.0.3
 
 - exclude unused internal declarations and empty runtime stubs for type-only
@@ -46,7 +65,8 @@ their npm publications and Git tags remain the historical release evidence.
 - remove the deprecated `NormalizedRequestOptions` public export; use
   `RequestOptions`, `ClientDefaults`, or `HookRequestOptions` for consumer code
 
-See [Migrating to 2.0.0](./MIGRATION.md) for examples and behavioral boundaries.
+See [Migrating to 2.0.0](./MIGRATION.md#migrate-from-1x-to-200) for examples
+and behavioral boundaries.
 
 ### Fixes and improvements
 

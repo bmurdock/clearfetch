@@ -227,7 +227,7 @@ test('afterResponse hook failures propagate without NetworkError wrapping', asyn
   )
 })
 
-test('afterResponse hook failures cancel the abandoned response body', async () => {
+test('afterResponse hook failures cancel the body before error observation', async () => {
   let bodyCancelCalls = 0
 
   await withMockedFetch(
@@ -251,6 +251,11 @@ test('afterResponse hook failures cancel the abandoned response body', async () 
               throw new Error('afterResponse failure')
             },
           ],
+          onError: [({ request, response }) => {
+            assert.equal(request?.signal.aborted, true)
+            assert.equal(bodyCancelCalls, 1)
+            assert.equal(response?.status, 200)
+          }],
         },
       })
 

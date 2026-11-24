@@ -11,6 +11,7 @@ const retainedAbortListeners = new FinalizationRegistry<RetainedAbortListener>(
 const rawBodyControllers = new WeakMap<ReadableStream<Uint8Array>, {
   controller: AbortController
   request: Request
+  dependentSignal: AbortSignal | undefined
 }>()
 // Node's Request owns the controller that forwards aborts to its signal.
 const activeRequests = new WeakMap<AbortController, Request>()
@@ -28,7 +29,36 @@ function createWeakAbortListener(
   return () => target.deref()?.abort(source.deref()?.reason)
 }
 
-export function createTimeoutController(signal?: AbortSignal, timeout?: number): {
+function createRetainedAbortCleanup(
+  link: RetainedAbortListener,
+  controller: AbortController,
+  body: WeakRef<ReadableStream<Uint8Array>>,
+): () => void {
+  return () => {
+    removeRetainedAbortListener(link)
+    retainedAbortListeners.unregister(controller)
+    const retainedBody = body.deref()
+    if (retainedBody !== undefined) {
+      rawBodyControllers.delete(retainedBody)
+    }
+  }
+}
+
+export function observeAbortSignal(signal: AbortSignal): AbortSignal {
+  // A native dependent signal aborts even when a listener on the caller's
+  // signal stops propagation.
+  if (typeof AbortSignal.any === 'function') {
+    try {
+      return AbortSignal.any([signal])
+    } catch (error) {
+      // Mixed fetch implementations may use a different AbortSignal brand.
+      if (!(error instanceof TypeError)) throw error
+    }
+  }
+  return signal
+}
+
+export function createTimeoutController(sourceSignal?: AbortSignal, timeout?: number): {
   abort: (reason?: unknown) => void
   cleanup: () => void
   stopTimer: () => void
@@ -38,6 +68,7 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
   signal: AbortSignal
 } {
   const controller = new AbortController()
+  const signal = sourceSignal === undefined ? undefined : observeAbortSignal(sourceSignal)
   let timedOut = false
   let timeoutId: ReturnType<typeof setTimeout> | undefined
 
@@ -76,31 +107,35 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
     stopTimer: clearTimeoutId,
     retainRequest: (request) => { activeRequests.set(controller, request) },
     retainExternalAbort: (body, request) => {
-      if (body === null || signal === undefined || controller.signal.aborted) {
+      if (
+        body === null ||
+        signal === undefined ||
+        controller.signal.aborted
+      ) {
         return
       }
 
       // A raw Response may still be streaming after attempt cleanup. Keep
       // cancellation connected without letting a long-lived caller signal
-      // strongly retain the completed request. Anchor the controller to the
-      // body, since a caller may retain only a reader. Retain the Request too:
-      // its signal alone may not keep its native controller alive.
+      // strongly retain the completed request. The caller may only retain a
+      // reader, so anchor the controller, native Request, and private dependent
+      // signal to the body. The caller signal itself remains weak.
       const source = new WeakRef(signal)
       const link = {
         source,
         listener: createWeakAbortListener(source, new WeakRef(controller)),
       }
-      rawBodyControllers.set(body, { controller, request })
+      rawBodyControllers.set(body, {
+        controller,
+        request,
+        dependentSignal: signal === sourceSignal ? undefined : signal,
+      })
       retainedAbortListeners.register(controller, link, controller)
-      const bodyRef = new WeakRef(body)
-      controller.signal.addEventListener('abort', () => {
-        removeRetainedAbortListener(link)
-        retainedAbortListeners.unregister(controller)
-        const retainedBody = bodyRef.deref()
-        if (retainedBody !== undefined) {
-          rawBodyControllers.delete(retainedBody)
-        }
-      }, { once: true })
+      controller.signal.addEventListener(
+        'abort',
+        createRetainedAbortCleanup(link, controller, new WeakRef(body)),
+        { once: true },
+      )
       signal.addEventListener('abort', link.listener, { once: true })
     },
     cleanup: () => {
@@ -112,7 +147,8 @@ export function createTimeoutController(signal?: AbortSignal, timeout?: number):
   }
 }
 
-export function sleep(duration: number, signal?: AbortSignal): Promise<void> {
+export function sleep(duration: number, sourceSignal?: AbortSignal): Promise<void> {
+  const signal = sourceSignal === undefined ? undefined : observeAbortSignal(sourceSignal)
   return new Promise((resolve, reject) => {
     if (signal?.aborted === true) {
       reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))

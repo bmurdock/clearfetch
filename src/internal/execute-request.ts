@@ -38,6 +38,7 @@ import {
 } from './retry-policy.js'
 import {
   createTimeoutController,
+  observeAbortSignal,
   sleep,
 } from './timeout-controller.js'
 
@@ -54,8 +55,7 @@ export async function executeRequest<T = unknown>(
   // full execution context per attempt so hook mutations do not leak across retries.
   let initialContext: ExecutionBeforeRequestContext
   try {
-    const methodOptions = createMethodOptions(options, method)
-    initialContext = createBeforeRequestContext(input, defaults, methodOptions)
+    initialContext = createBeforeRequestContext(input, defaults, options, 1, method)
   } catch (error) {
     await runOnErrorHooks({
       input,
@@ -156,20 +156,14 @@ export async function executeRequest<T = unknown>(
                 request,
                 timeout,
               }) ?? error
-            try {
-              await runOnErrorHooks({
-                input,
-                error: propagatedError,
-                options: context.hookContext.options,
-                request,
-                response,
-              }, context.normalizedOptions.hooks.onError)
-            } finally {
-              timeout.abort(
-                new DOMException('Response body abandoned', 'AbortError'),
-              )
-              cancelResponseBody(response)
-            }
+            abandonResponse(timeout, response)
+            await runOnErrorHooks({
+              input,
+              error: propagatedError,
+              options: context.hookContext.options,
+              request,
+              response,
+            }, context.normalizedOptions.hooks.onError)
             throw propagatedError
           }
 
@@ -182,20 +176,14 @@ export async function executeRequest<T = unknown>(
             timeout,
           })
           if (abortError !== undefined) {
-            try {
-              await runOnErrorHooks({
-                input,
-                error: abortError,
-                options: context.hookContext.options,
-                request,
-                response,
-              }, context.normalizedOptions.hooks.onError)
-            } finally {
-              timeout.abort(
-                new DOMException('Response body abandoned', 'AbortError'),
-              )
-              cancelResponseBody(response)
-            }
+            abandonResponse(timeout, response)
+            await runOnErrorHooks({
+              input,
+              error: abortError,
+              options: context.hookContext.options,
+              request,
+              response,
+            }, context.normalizedOptions.hooks.onError)
             throw abortError
           }
         }
@@ -262,22 +250,6 @@ function createMethodCaller(
     input: string | URL,
     options: RequestOptions = {},
   ) => executeRequest<T>(input, defaults, options, fetch, method)
-}
-
-function createMethodOptions(
-  options: RequestOptions,
-  method?: RequestMethod,
-): RequestOptions {
-  if (
-    method === undefined ||
-    typeof options !== 'object' ||
-    options === null ||
-    Array.isArray(options)
-  ) {
-    return options
-  }
-
-  return { ...options, method } as RequestOptions
 }
 
 async function runBeforeRequestHooks(
@@ -552,8 +524,7 @@ async function parseWithHandling<T>(params: {
       attempt,
     )
   ) {
-    timeout.abort(new DOMException('Response body abandoned', 'AbortError'))
-    cancelResponseBody(response)
+    abandonResponse(timeout, response)
     await waitForRetryWithHandling({
       attempt,
       context,
@@ -631,8 +602,9 @@ async function parseWithHandling<T>(params: {
 
 function waitForResultOrAbort<T>(
   promise: Promise<T>,
-  signal: AbortSignal,
+  sourceSignal: AbortSignal,
 ): Promise<T> {
+  const signal = observeAbortSignal(sourceSignal)
   if (signal.aborted) {
     // The operation can abort synchronously before returning its promise.
     // Observe a later rejection even when cancellation has already won.
@@ -674,6 +646,14 @@ function waitForResultOrAbort<T>(
       },
     )
   })
+}
+
+function abandonResponse(
+  timeout: ReturnType<typeof createTimeoutController>,
+  response: Response,
+): void {
+  timeout.abort(new DOMException('Response body abandoned', 'AbortError'))
+  cancelResponseBody(response)
 }
 
 function cancelResponseBody(response: Response): void {

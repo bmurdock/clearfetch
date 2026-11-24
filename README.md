@@ -149,6 +149,22 @@ Request-level options override client defaults. Request headers replace matching
 client header values, while client hooks run before request hooks and each hook
 list retains its definition order.
 
+When a client has a `baseURL`, clearfetch removes `Authorization`, `Cookie`,
+`Set-Cookie`, `Proxy-Authorization`, `X-API-Key`, and `Api-Key` before sending a
+request to a different origin. Origin includes the scheme, host, and port.
+Clearfetch checks the final URL after `beforeRequest` hooks run, so the rule
+also applies to URL overrides and to credentials supplied per request or by a
+hook. If the base URL has an opaque origin, clearfetch removes the listed
+headers for every destination.
+
+Clients that previously sent any of these headers to another origin must use a
+client scoped to that destination or supply the headers on a one-off
+`request()`. A client created without a `baseURL` sends headers to its
+caller-selected URL. Native fetch controls redirects and browser-managed
+credentials after handoff. See the
+[3.0 migration guide](https://github.com/bmurdock/clearfetch/blob/main/MIGRATION.md#migrate-from-2x-to-300)
+for examples.
+
 ### Conservative retries
 
 ```ts
@@ -169,7 +185,8 @@ const response = await api.get('/status')
 ```
 
 `attempts` includes the initial request. For example, `attempts: 3` permits up to
-three total attempts, including up to two retries.
+three total attempts, including up to two retries. Set `attempts` to a positive
+safe integer.
 
 When an eligible request has attempts remaining, clearfetch retries a
 `NetworkError`. It retries HTTP responses only when their status appears in
@@ -251,12 +268,14 @@ Hook scope is intentionally narrow:
 
 - `beforeRequest` may mutate headers and may replace the URL with a final absolute URL
 - `afterResponse` and `onError` are observational only apart from throwing
-- `context.options` is read-only hook metadata, not a supported mutation surface
+- `context.options` is read-only hook metadata, including the query record and its arrays
 
 Client hooks run before request hooks. Within each client or request hook list,
 hooks run in definition order. `onError` hooks are awaited and are not raced
 against cancellation. Keep them bounded: a pending observer delays rejection,
-and an observer that throws replaces the error delivered to the caller.
+and an observer that throws replaces the error delivered to the caller. When an
+`afterResponse` hook fails, clearfetch starts cancelling the response before
+notifying observers. Use response status and headers in those observers.
 
 Cloned `afterResponse` inspection is intended for ordinary API payloads, not
 large streaming or heavy binary workflows.

@@ -29,10 +29,44 @@ function abandonBody(): WeakRef<ReadableStream<Uint8Array>> {
 }
 
 const abandoned = abandonBody()
-assert.equal(getEventListeners(source.signal, 'abort').length, 1)
+assert.equal(
+  getEventListeners(source.signal, 'abort').length,
+  typeof AbortSignal.any === 'function' ? 0 : 1,
+)
 await collectGarbage()
 assert.equal(abandoned.deref(), undefined, 'caller signal retained the abandoned body')
 assert.equal(getEventListeners(source.signal, 'abort').length, 0)
+
+function retainBodyWithLegacySignal(): {
+  body: ReadableStream<Uint8Array>
+  source: WeakRef<AbortSignal>
+} {
+  const caller = new AbortController()
+  const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any')
+  const timeout = (() => {
+    Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined })
+    try {
+      return createTimeoutController(caller.signal)
+    } finally {
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(AbortSignal, 'any')
+      } else {
+        Object.defineProperty(AbortSignal, 'any', descriptor)
+      }
+    }
+  })()
+  const body = new ReadableStream<Uint8Array>()
+  timeout.retainExternalAbort(body, new Request('https://example.com', {
+    signal: timeout.signal,
+  }))
+  timeout.cleanup()
+  return { body, source: new WeakRef(caller.signal) }
+}
+
+const legacy = retainBodyWithLegacySignal()
+await collectGarbage()
+assert.equal(legacy.source.deref(), undefined, 'raw body retained the caller signal')
+assert.equal(legacy.body.locked, false)
 
 const server = createServer((incoming, response) => {
   response.writeHead(200, { 'Content-Type': 'text/plain' })

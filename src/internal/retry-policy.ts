@@ -92,6 +92,11 @@ function validateRetryNumbers(retry: Required<RetryOptions>): void {
   if (!Number.isInteger(retry.attempts) || retry.attempts <= 0) {
     throw new ConfigError('`retry.attempts` must be a positive integer')
   }
+  if (retry.attempts > Number.MAX_SAFE_INTEGER) {
+    throw new ConfigError(
+      `\`retry.attempts\` must be no greater than ${Number.MAX_SAFE_INTEGER}`,
+    )
+  }
 
   if (!Number.isFinite(retry.backoffMs) || retry.backoffMs < 0) {
     throw new ConfigError('`retry.backoffMs` must be a non-negative finite number')
